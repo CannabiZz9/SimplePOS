@@ -4,11 +4,13 @@ import tkinter as tk
 from tkinter import ttk
 import customtkinter as ctk
 from CTkListbox import *
-import sys
 import sqlite3
-import matplotlib.pyplot as plt
 from datetime import datetime
-
+import tempfile
+import win32api
+import win32print
+import sys
+import pygame
 
 def resource_path(relative_path):
     """ Get absolute path to resource, works for dev and for PyInstaller """
@@ -57,7 +59,6 @@ class ShoppingCartApp:
         
         self.cart = []
 
-        self.current_quantity = 1
         self.current_price = 0
         self.Sumprice = 0
         self.allitem_quantity =0
@@ -70,39 +71,31 @@ class ShoppingCartApp:
             current_text = ""
         self.price_entry.delete(0, "end")
         self.price_entry.insert(0, current_text + str(value))
+        self.play_sound()
 
     def clear_price_entry(self):
         self.price_entry.delete(0, "end")
         self.price_entry.insert(0, "0")
-
-    def decrement_quantity(self):
-        if self.current_quantity > 1:
-            self.current_quantity -= 1
-            self.quantity_label.configure(text=f"Quantity: {self.current_quantity}")
-
-    def increment_quantity(self):
-        self.current_quantity += 1
-        self.quantity_label.configure(text=f"Quantity: {self.current_quantity}")
-
-    def decrement5_quantity(self):
-        if self.current_quantity > 5:
-            self.current_quantity -= 5
-            self.quantity_label.configure(text=f"Quantity: {self.current_quantity}")
-
-    def increment5_quantity(self):
-        self.current_quantity += 5
-        self.quantity_label.configure(text=f"Quantity: {self.current_quantity}")
+        self.play_sound()
         
     def add_to_cart(self):
-        self.item_price = float(self.price_entry.get())
-        self.item_quantity = self.current_quantity
+        self.play_sound()
+        self.item_quantity = 1
+        input_string = self.price_entry.get()
+        parts = input_string.split('*')
+        
+
+        try:
+            # Extract and convert the values to integers
+            self.item_price = float(parts[0])
+            self.item_quantity = int(parts[1])
+        except (ValueError, IndexError):
+            self.item_quantity = 1
         self.item_overall_price = (self.item_price * self.item_quantity)
         if self.item_price != 0:
             self.cart.append(self.item_price)
             self.cart.append(self.item_quantity) 
             self.cart.append(self.item_overall_price)
-            self.current_quantity = 1
-            self.quantity_label.configure(text=f"Quantity: {self.current_quantity}")
             self.current_price = 0
             self.price_entry.delete(0, "end")
             self.price_entry.insert(0, "0")
@@ -110,58 +103,152 @@ class ShoppingCartApp:
     
     def removefromcart(self):
         self.index = self.cart_listbox.curselection()
-        self.cart.pop(self.index*3)
-        self.cart.pop(self.index*3)
-        self.cart.pop(self.index*3)
+        if self.index is not None and self.index != ():
+            self.cart.pop(self.index * 3)
+            self.cart.pop(self.index * 3)
+            self.cart.pop(self.index * 3)
+            self.updateCart()
+        else:
+            print("\nDidn't select anything to remove")
+        self.play_sound()
+    
+    def clearcart(self):
+        self.cart = []
         self.updateCart()
+        self.play_sound()
     
     def updateCart(self):
         self.cart_listbox.delete(0,'end')
         self.Sumprice = 0
         self.allitem_quantity =0
         for x in range(0, int((len(self.cart))), 3):
-            self.item_name = f"Item {int((x/3)+1)}"
+            self.item_name = f"{int((x/3)+1)})"
             self.item_price = self.cart[(x)]
             self.item_quantity = self.cart[(x+1)]
             self.allitem_quantity += self.cart[(x+1)]
             self.item_overall_price = self.cart[(x+2)]
-            self.cart_listbox.insert(x,f"{self.item_name}  {self.item_price}฿  @{self.item_quantity} ชิ้น -->  {self.item_overall_price} ฿")
+            self.cart_listbox.insert(x,f"{self.item_name}  {self.item_price}฿  {self.item_quantity} ชิ้น --> {self.item_overall_price}฿")
             self.Sumprice += self.item_overall_price
         self.total_label.configure(text=f"Total: {self.Sumprice}฿")
-        self.totalquantity_label.configure(self.total_frame, text=f"จำนวนทั้งหมด : {int(self.allitem_quantity)} ชิ้น",font=("Arial", 27))
+        self.totalquantity_label.configure(self.total_frame, text=f"จำนวนทั้งหมด : {int(self.allitem_quantity)} ชิ้น")
+        self.check_cart()
         
+    def delete_last_digit(self):
+        current_text = self.price_entry.get()
+        if len(current_text) > 0:
+            self.price_entry.delete(len(self.price_entry.get())-1, 'end')
+        self.play_sound()    
         
+
     def generate_receipt(self):
-        items = self.cart
-        receipt = f"************ Receipt ************\n"
-        for x in range(0, int((len(items))), 3):
-            receipt += f"Item{int((x/3)+1)} : {items[x]} Bath x @{items[x+1]}  --> {items[x+2]} Bath"
-            receipt += f"\n"
+        bill_number = self.generate_bill_number()
+        sale_date = datetime.now().strftime('%d/%m/%Y')
+        sale_time = datetime.now().time()
+        billsale_time_str = sale_time.strftime('%H:%M')
+        itemscart = self.cart
+        header = """
+       {title:^31}
+       {subtitle:^28}
+       {address:^32}   
+       {open_hours:^31}
+        """.format(
+        title="ร้านข้าวแต๋น",
+        subtitle="ของฝากจากลำปาง",
+        address="ตึกสีส้มทางเข้า HOP INN",
+        open_hours="เปิด 8.00-21.00น. ทุกวัน"
+        )
+
+        middle = """
+{left_text:<14}{right_text:>19}
+{bill_number:<20}
+        """.format(
+        left_text=f"วันที่ {sale_date}",
+        right_text=f"เวลา {billsale_time_str}",
+        bill_number=f"เลขที่บิล: {bill_number}"
+        )
+
+        itemfirst = """
+รายการ:
+-------------------------------------------"""
+
+        items = ""
+        for x in range(0, int((len(itemscart))), 3):
+            items += """
+ราคา    {item_info:<5} ฿    {item_quan:<3} ชิ้น  =>  {itemsumprice:>1} ฿
+""".format(
+            item_info=f" {itemscart[x]}",
+            item_quan=f" {itemscart[x+1]}",
+            itemsumprice=f" {itemscart[x+2]}"
+        )
+
+        quan_item = """
+สินค้า :    {item_quan:<5} รายการ   รวม  {allitemquan:>1} ชิ้น
+""".format(
+            item_quan=f" {int((len(itemscart))/3)}",
+            allitemquan=f" {self.allitem_quantity}"
+        )
+
+        itemlast = """
+-------------------------------------------
+
+"""
+
+        total = """            {total_label:>21} {total_amount:>10} 
+        """.format(
+        total_label="  รวม: ",
+        total_amount=f"  {self.Sumprice}  ฿"
+        )
+
+        footer = """
+          {thanks:^22}
+          {tel_info:>22}
+          
+        """.format(
+        thanks="ขอบคุณเจ้า",
+        tel_info="""โทร : 054-230189\n\n
         
-        receipt += f"\nTotal: {self.Sumprice}"
+        
+        
+        """
+        )
+        blank = """
+          
+          
+          
+        """
 
-        receipt += f"\n*********************************\n"
-        print(receipt.encode('utf-8').decode('utf-8'))
-        self.add_sale(self.Sumprice, self.employee)
-        return receipt
+        receipt = f"{header}{middle}{itemfirst}{items}{quan_item}{itemlast}{total}{footer}{blank}"
+        return receipt.encode('utf-8').decode('utf-8')     
 
-    
+    def print_receipt(self,text_to_print):
+        # Use 'w' mode with encoding to write UTF-8 content to the file
+        with open(tempfile.mktemp(".txt"), "w", encoding='utf-8') as file:
+            file.write(text_to_print)
 
-    #def print_receipt(self):
-        # Connect to the USB thermal printer (you might need to change the USB address)
-        printer = Usb(0x0416, 0x5011, 0)
-        # Set font size and style (optional)
-        printer.set(align='center', font='b', text_type='normal', width=1, height=1)
-        # Set Printer Text
-        receipt_text = self.generate_receipt(self.cart)
-        receipt_text = receipt_text.encode('utf-8').decode('utf-8')
-        printer.text(receipt_text)
-        printer.cut()
-        printer.close()
+        # Specify the full path to the created file
+        filename = tempfile.mktemp(".txt")
+        open(filename, "w", encoding='utf-8').write(text_to_print)
+
+        for _ in range(2): 
+            win32api.ShellExecute(
+                0,
+                "print",
+                filename,
+                '/d:"%s"' % win32print.GetDefaultPrinter(),
+                ".",
+                0
+        )
+
+    def Checkout(self):
+        self.play_sound()
+        text_to_print = self.generate_receipt()
+        self.print_receipt(text_to_print)
+        self.add_sale(self.Sumprice,self.employee)
+        self.clearcart()
         
     def generate_bill_number(self):
         # Generate a unique bill number using a timestamp
-        timestamp = datetime.now().strftime('%Y%m%d%H%M')
+        timestamp = datetime.now().strftime('%y%m%d%H%M%S')
         return f'B{timestamp}'
     
     def add_sale(self, price, employee):
@@ -177,82 +264,99 @@ class ShoppingCartApp:
         # Commit the changes
         connection.commit()
     
+    def check_cart(self):
+        if len(self.cart) > 0:
+            # Enable the Print button if the listbox has items
+            self.Print.configure(state=ctk.NORMAL)
+            self.clearcart_Button.configure(state=ctk.NORMAL)
+            self.RemoveButton.configure(state=ctk.NORMAL)
+            
+        else:
+            # Disable the Print button if the listbox is empty
+            self.Print.configure(state=ctk.DISABLED)
+            self.clearcart_Button.configure(state=ctk.DISABLED)
+            self.RemoveButton.configure(state=ctk.DISABLED)
+            
+    
     def go2history(self):
+        self.play_sound()
         #self.create_histry_widgets()
         #self.histrywindow.mainloop()
-        self.path2py = r"D:\Work\SimplePOS2\RealUse\SimplePOS\GUISale.py"
+        self.path2py = r"C:\Users\POS\Desktop\Program\Program\GUISale.py"
         subprocess.run(['python', resource_path(self.path2py)])
         #os.startfile("C:\Program Files (x86)\SimplePOS\History\History.exe")
         
+    def play_sound(self):
+        pygame.mixer.music.play()
     
+    def koon(self, value):
+        self.play_sound()
+        self.price_entry.insert('end', value)
+        
     def create_widgets(self):
+        pygame.mixer.init()
+        pygame.mixer.music.load(r"D:\Work\SimplePOS2\RealUse\SimplePOS\s.mp3")
+        self.play_sound()
         # Create price entry widget
         self.calculator_frame = ctk.CTkFrame(self.window)
-        self.calculator_frame.grid(row=1, column=2, columnspan=4, padx=50, pady=5)
-        self.price_label = ctk.CTkLabel(self.window, text="Price:",font=("Arial", 25))
-        self.price_label.grid(row=0, column=2, padx=10, pady=5)
-        self.price_entry = ctk.CTkEntry(self.window, width=150, height=20,font=("Arial", 25))
-        self.price_entry.insert(0, "0")
-        self.price_entry.grid(row=0, column=3, padx=10, pady=5)
+        self.calculator_frame.grid(row=1, column=2, columnspan=4, padx=40, pady=5)
+        self.price_label = ctk.CTkLabel(self.window, text="Price:",font=("Arial", 27))
+        self.price_label.grid(row=0, column=2, padx=10, pady=50)
+        self.price_entry = ctk.CTkEntry(self.window, width=250, height=35,font=("Arial", 27))
+        self.price_entry.insert(0, "0") 
+        self.price_entry.grid(row=0, column=3, padx=10, pady=50)
 
         # Create calculator buttons
         self.calculator_buttons = {}
         for i in range(9):
-            button = ctk.CTkButton(self.calculator_frame, text=str(i+1), command=lambda i=i: self.append_to_price_entry(i+1),font=("Arial", 25))
-            button.grid(row=(2 - i // 3), column=(i % 3), padx=10, pady=10,ipady=25)
+            button = ctk.CTkButton(self.calculator_frame, text=str(i+1), command=lambda i=i: self.append_to_price_entry(i+1),font=("Arial", 27))
+            button.grid(row=(2 - i // 3), column=(i % 3), padx=10, pady=10,ipady=40)
             self.calculator_buttons[str(i+1)] = button
-        self.zero_button = ctk.CTkButton(self.calculator_frame, text="0", command=lambda: self.append_to_price_entry(0),font=("Arial", 25))
-        self.zero_button.grid(row=3, column=0, padx=10, pady=10,columnspan=2,ipadx=95,ipady=25)
+        self.zero_button = ctk.CTkButton(self.calculator_frame, text="0", command=lambda: self.append_to_price_entry(0),font=("Arial", 27))
+        self.zero_button.grid(row=3, column=0, padx=10, pady=10,columnspan=2,ipadx=95,ipady=40)
         self.calculator_buttons[0] = self.zero_button
-        self.dot_button = ctk.CTkButton(self.calculator_frame, text=".", command=lambda: self.append_to_price_entry("."),font=("Arial", 25))
-        self.dot_button.grid(row=3, column=2, padx=10, pady=10,ipady=25)
+        self.dot_button = ctk.CTkButton(self.calculator_frame, text=".", command=lambda: self.append_to_price_entry("."),font=("Arial", 27))
+        self.dot_button.grid(row=3, column=2, padx=10, pady=10,ipady=40)
         self.calculator_buttons["."] = self.dot_button
-        self.clear_button = ctk.CTkButton(self.calculator_frame, text="C", command=self.clear_price_entry,font=("Arial", 25))
-        self.clear_button.grid(row=3, column=3, padx=10, pady=10,ipady=25)
+        self.clear_button = ctk.CTkButton(self.calculator_frame, text=" C ", command=self.clear_price_entry,font=("Arial", 27), fg_color="red")
+        self.clear_button.grid(row=0, column=3, padx=10, pady=10,ipady=40)
+        self.koon_button = ctk.CTkButton(self.calculator_frame, text=" x ", command=lambda: self.koon('*'),font=("Arial", 27), fg_color="blue")
+        self.koon_button.grid(row=2, column=3, padx=10, pady=10,ipady=40)
+        self.del1_button = ctk.CTkButton(self.calculator_frame, text="<--", command=self.delete_last_digit,font=("Arial", 27), fg_color="#FC6736")
+        self.del1_button.grid(row=1, column=3, padx=10, pady=10,ipady=40)
+        self.add_to_cart_button = ctk.CTkButton(self.calculator_frame, text="add", command=self.add_to_cart,font=("Arial", 27), fg_color="green")
+        self.add_to_cart_button.grid(row=3, column=3, padx=10, pady=10,ipady=40)
         
-        # Create quantity buttons
-        self.quantity_frame = ctk.CTkFrame(self.window)
-        self.quantity_frame.grid(row=1, column=6, columnspan=2, padx=20, pady=15)
-        self.quantity_left_button = ctk.CTkButton(self.quantity_frame, text="-5", command=self.decrement5_quantity,font=("Arial", 20))
-        self.quantity_left_button.grid(row=4, column=0, padx=5, pady=5,ipady=25)
-        self.quantity_left_button = ctk.CTkButton(self.quantity_frame, text="-1", command=self.decrement_quantity,font=("Arial", 20))
-        self.quantity_left_button.grid(row=3, column=0, padx=5, pady=5,ipady=25)
-        self.quantity_label = ctk.CTkLabel(self.quantity_frame, text=f"Quantity: {self.current_quantity}",font=("Arial", 25))
-        self.quantity_label.grid(row=2, column=0, padx=5, pady=5)
-        self.quantity_right_button = ctk.CTkButton(self.quantity_frame, text="+1", command=self.increment_quantity,font=("Arial", 20))
-        self.quantity_right_button.grid(row=1, column=0, padx=5, pady=5,ipady=25)
-        self.quantity_right_button = ctk.CTkButton(self.quantity_frame, text="+5", command=self.increment5_quantity,font=("Arial", 20))
-        self.quantity_right_button.grid(row=0, column=0, padx=5, pady=5,ipady=25)
-
-        # Create add to cart button
-        self.add_button = ctk.CTkButton(self.quantity_frame, text="Add to Cart", command=self.add_to_cart,font=("Arial", 27))
-        self.add_button.grid(row=2, column=1, columnspan=1, padx=10, pady=10,ipady=35)
 
         # Create cart listbox
         self.cart_frame = ctk.CTkFrame(self.window)
-        self.cart_frame.grid(row=2, column=2, columnspan=3, padx=35, pady=0)
+        self.cart_frame.grid(row=1, column=6, columnspan=3, padx=35, pady=0)
+        self.buttoncart_frame = ctk.CTkFrame(self.cart_frame)
+        self.buttoncart_frame.grid(row=0, column=4, columnspan=2, padx=35, pady=0)
         self.cart_label = ctk.CTkLabel(self.cart_frame, text="Cart: ",font=("Arial", 27))
         self.cart_label.grid(row=0, column=0 ,columnspan=1, padx=10, pady=10)
-        self.cart_listbox = CTkListbox(self.cart_frame, height=350,width=220)
+        self.cart_listbox = CTkListbox(self.cart_frame, height=400,width=275,font=("Angsana New",39))
         self.cart_listbox.grid(row=0, column=1, columnspan=2, padx=10, pady=10)
+        self.RemoveButton = ctk.CTkButton(self.buttoncart_frame, text="Remove From Cart",command=self.removefromcart,font=("Arial", 30), state=ctk.DISABLED)
+        self.RemoveButton.grid(row=0, column=0, padx=10, pady=20, ipady=20)
+        self.clearcart_Button = ctk.CTkButton(self.buttoncart_frame, text="Clear Cart",command=self.clearcart,font=("Arial", 30), state=ctk.DISABLED)
+        self.clearcart_Button.grid(row=1, column=0, padx=10, pady=20, ipady=20)
 
         # Create total label
         self.total_frame = ctk.CTkFrame(self.window)
         self.total_frame.grid(row=2, column=5, columnspan=4, padx=10, pady=10)
-        self.total_label = ctk.CTkLabel(self.total_frame, text=f"Total: {self.Sumprice}฿",font=("Arial", 27))
+        self.total_label = ctk.CTkLabel(self.total_frame, text=f"Total: {self.Sumprice}฿",font=("Arial", 40))
         self.total_label.grid(row=0, column=0, padx=10, pady=10)
         self.totalquantity_label = ctk.CTkLabel(self.total_frame, text=f"จำนวนทั้งหมด : {int(self.allitem_quantity)} ชิ้น",font=("Arial", 27))
         self.totalquantity_label.grid(row=1, column=0, padx=10, pady=10)
-        self.Print = ctk.CTkButton(self.total_frame, text="Print", command=self.generate_receipt ,font=("Arial", 30))
-        self.Print.grid(row=2, column=0, padx=10, pady=20, ipady=20)
+        self.Print = ctk.CTkButton(self.total_frame, text="Print", command=self.Checkout ,font=("Arial", 27), state=ctk.DISABLED)
+        self.Print.grid(row=2, column=0, padx=10, pady=30, ipady=30)
         
-        #Print and Reset Button
-        self.RemoveButton = ctk.CTkButton(self.cart_frame, text="Remove From Cart",command=self.removefromcart,font=("Arial", 27))
-        self.RemoveButton.grid(row=0, column=3, padx=10, pady=20, ipady=20)
+        #History and Exit
         self.histry_button = ctk.CTkButton(self.window, text="Sale History", command=self.go2history,font=("Arial", 30))
-        self.histry_button.grid(row=0, column=8, padx=10, pady=5,columnspan=2,ipadx=55)
+        self.histry_button.grid(row=0, column=7, padx=10, pady=50,columnspan=2,ipadx=55)
         self.Exit = ctk.CTkButton(self.window, text="Exit", command=self.window.quit , font=("Arial", 30))
-        self.Exit.grid(row=0, column=10, padx=10, pady=5,columnspan=1,sticky='e')
+        self.Exit.grid(row=0, column=8, padx=10, pady=50,columnspan=1,sticky='e')
         
         self.window.mainloop()  
         
