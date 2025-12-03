@@ -15,20 +15,18 @@ import pygame
 def resource_path(relative_path):
     """ Get absolute path to resource, works for dev and for PyInstaller """
     try:
-        # PyInstaller creates a temp folder and stores path in _MEIPASS
         base_path = sys._MEIPASS
     except Exception:
         base_path = os.path.abspath(".")
 
     return os.path.join(base_path, relative_path)
 
-
 ctk.set_appearance_mode('dark')
 
-connection = sqlite3.connect('sales_history.db')
+connection = sqlite3.connect('sales_history.db', check_same_thread=False) 
+# Added check_same_thread=False to prevent issues with multiple windows accessing DB
 cursor = connection.cursor()
 
-# Create a sales history table with additional fields
 cursor.execute('''
     CREATE TABLE IF NOT EXISTS sales (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -40,31 +38,57 @@ cursor.execute('''
     )
 ''')
 
-
-
 class ShoppingCartApp:
-    def __init__(self):
-        self.window = ctk.CTk()
-        self.window.title("Shopping Cart")
-        self.histrywindow = ctk.CTk()
-        self.histrywindow.title("Sale History")
-        self.window.attributes('-fullscreen', True)
-        self.window._state_before_windows_set_titlebar_color = 'zoomed'
-        width= self.window.winfo_screenwidth()               
-        height= self.window.winfo_screenheight()  
-        #width= 1000               
-        #height= 700             
-        #self.window.geometry("%dx%d" % (width+200, height+200))
-        #self.histrywindow.geometry("%dx%d" % (width, height))
+    def __init__(self, is_secondary=False):
+        # Logic to decide if this is the Main Window or a Second Screen
+        self.is_secondary = is_secondary
+        
+        if self.is_secondary:
+            self.window = ctk.CTkToplevel() # Create a secondary window
+            self.window.title("Shopping Cart (Window 2)")
+        else:
+            self.window = ctk.CTk() # Create the main root window
+            self.window.title("Shopping Cart")
+            
+        self.histrywindow = None # Initialize as None, created only when needed
+        
+        if self.is_secondary:
+            self.window = ctk.CTkToplevel() # Create a secondary window
+            self.window.title("Shopping Cart (Window 2)")
+            self.window.attributes('-fullscreen', False)
+            
+        else:
+            self.window = ctk.CTk() # Create the main root window
+            self.window.title("Shopping Cart")
+            
+            # --- CHANGE 2: KEEP FULLSCREEN FOR PRIMARY WINDOW ---
+            self.window.attributes('-fullscreen', True) 
+        
+        # Determine screen dimensions (still useful if you want to place windows precisely later)
+        width = self.window.winfo_screenwidth()               
+        height = self.window.winfo_screenheight()
         
         self.cart = []
-
         self.current_price = 0
         self.Sumprice = 0
-        self.allitem_quantity =0
-        self.employee = "Defualt"
+        self.allitem_quantity = 0
+        self.employee = "Default"
+        
+        # We need to keep a reference to the second window object so it isn't garbage collected
+        self.second_app_instance = None 
+
         self.create_widgets()
     
+    def PlusWindow(self):
+        self.play_sound()
+        # Create a new instance of the class, but tell it it is a secondary window
+        # We assign it to self.second_app_instance to keep it alive in memory
+        self.second_app_instance = ShoppingCartApp(is_secondary=True)
+        
+        # Optional: If you want to force it to a specific monitor, you would need
+        # to calculate geometry here (e.g., self.second_app_instance.window.geometry("+1920+0"))
+        # For now, it opens fullscreen on top, and can be moved/managed by the OS.
+
     def append_to_price_entry(self, value):
         current_text = self.price_entry.get()
         if current_text == "0" or current_text == "":
@@ -83,10 +107,8 @@ class ShoppingCartApp:
         self.item_quantity = 1
         input_string = self.price_entry.get()
         parts = input_string.split('*')
-        
 
         try:
-            # Extract and convert the values to integers
             self.item_price = float(parts[0])
             self.item_quantity = int(parts[1])
         except (ValueError, IndexError):
@@ -138,7 +160,6 @@ class ShoppingCartApp:
         if len(current_text) > 0:
             self.price_entry.delete(len(self.price_entry.get())-1, 'end')
         self.play_sound()    
-        
 
     def generate_receipt(self):
         bill_number = self.generate_bill_number()
@@ -206,9 +227,6 @@ class ShoppingCartApp:
         """.format(
         thanks="ขอบคุณเจ้า",
         tel_info="""โทร : 054-230189\n\n
-        
-        
-        
         """
         )
         blank = """
@@ -221,23 +239,25 @@ class ShoppingCartApp:
         return receipt.encode('utf-8').decode('utf-8')     
 
     def print_receipt(self,text_to_print):
-        # Use 'w' mode with encoding to write UTF-8 content to the file
         with open(tempfile.mktemp(".txt"), "w", encoding='utf-8') as file:
             file.write(text_to_print)
 
-        # Specify the full path to the created file
         filename = tempfile.mktemp(".txt")
         open(filename, "w", encoding='utf-8').write(text_to_print)
 
-        for _ in range(2): 
-            win32api.ShellExecute(
-                0,
-                "print",
-                filename,
-                '/d:"%s"' % win32print.GetDefaultPrinter(),
-                ".",
-                0
-        )
+        # Added try-except to prevent crash if no printer is found
+        try:
+            for _ in range(2): 
+                win32api.ShellExecute(
+                    0,
+                    "print",
+                    filename,
+                    '/d:"%s"' % win32print.GetDefaultPrinter(),
+                    ".",
+                    0
+            )
+        except Exception as e:
+            print(f"Printer error: {e}")
 
     def Checkout(self):
         self.play_sound()
@@ -247,7 +267,6 @@ class ShoppingCartApp:
         self.clearcart()
         
     def generate_bill_number(self):
-        # Generate a unique bill number using a timestamp
         timestamp = datetime.now().strftime('%y%m%d%H%M%S')
         return f'B{timestamp}'
     
@@ -260,43 +279,47 @@ class ShoppingCartApp:
             INSERT INTO sales (bill_number, sale_date, sale_time, price_sold, employee)
             VALUES (?, ?, ?, ?, ?)
         ''', (bill_number, sale_date, sale_time_str, price, employee))
-
-        # Commit the changes
         connection.commit()
     
     def check_cart(self):
         if len(self.cart) > 0:
-            # Enable the Print button if the listbox has items
             self.Print.configure(state=ctk.NORMAL)
             self.clearcart_Button.configure(state=ctk.NORMAL)
             self.RemoveButton.configure(state=ctk.NORMAL)
-            
         else:
-            # Disable the Print button if the listbox is empty
             self.Print.configure(state=ctk.DISABLED)
             self.clearcart_Button.configure(state=ctk.DISABLED)
             self.RemoveButton.configure(state=ctk.DISABLED)
             
-    
     def go2history(self):
         self.play_sound()
-        #self.create_histry_widgets()
-        #self.histrywindow.mainloop()
         self.path2py = r"C:\Users\POS\Desktop\Program\Program\GUISale.py"
-        subprocess.run(['python', resource_path(self.path2py)])
-        #os.startfile("C:\Program Files (x86)\SimplePOS\History\History.exe")
+        #self.path2py = r"D:\Work\SimplePOS2\RealUse\SimplePOS\GUISale.py"
+        try:
+            subprocess.run(['python', resource_path(self.path2py)])
+        except Exception as e:
+            print(f"Could not open history: {e}")
         
     def play_sound(self):
-        pygame.mixer.music.play()
+        if pygame.mixer.get_init():
+            try:
+                pygame.mixer.music.play()
+            except Exception:
+                pass
     
     def koon(self, value):
         self.play_sound()
         self.price_entry.insert('end', value)
         
     def create_widgets(self):
-        pygame.mixer.init()
-        pygame.mixer.music.load(r"D:\Work\SimplePOS2\RealUse\SimplePOS\s.mp3")
-        self.play_sound()
+        if not pygame.mixer.get_init():
+            pygame.mixer.init()
+            try:
+                # Use raw string or check if file exists to prevent errors
+                pygame.mixer.music.load(r"D:\Work\SimplePOS2\RealUse\SimplePOS\s.mp3")
+            except:
+                pass # Fail silently if sound file missing
+
         # Create price entry widget
         self.calculator_frame = ctk.CTkFrame(self.window)
         self.calculator_frame.grid(row=1, column=2, columnspan=4, padx=40, pady=5)
@@ -352,18 +375,27 @@ class ShoppingCartApp:
         self.Print = ctk.CTkButton(self.total_frame, text="Print", command=self.Checkout ,font=("Arial", 27), state=ctk.DISABLED)
         self.Print.grid(row=2, column=0, padx=10, pady=30, ipady=30)
         
-        #History and Exit
+        # --- TOP BUTTONS (History, PlusWindow, Exit) ---
+        
+        # 1. Sale History Button (Row 0, Col 7)
         self.histry_button = ctk.CTkButton(self.window, text="Sale History", command=self.go2history,font=("Arial", 30))
-        self.histry_button.grid(row=0, column=7, padx=10, pady=50,columnspan=2,ipadx=55)
-        self.Exit = ctk.CTkButton(self.window, text="Exit", command=self.window.quit , font=("Arial", 30))
-        self.Exit.grid(row=0, column=8, padx=10, pady=50,columnspan=1,sticky='e')
-        
-        self.window.mainloop()  
-        
-        
-    
-    
-    
-    
-ShopApp = ShoppingCartApp()
+        self.histry_button.grid(row=0, column=7, padx=10, pady=50, columnspan=1, ipadx=55)
 
+        # 2. NEW BUTTON: +Window (Row 0, Col 8)
+        # Note: Only show this on the Main window to avoid infinite windows from sub-windows? 
+        # (Optional, but here we render it on all)
+        self.plus_window_btn = ctk.CTkButton(self.window, text="+Window", command=self.PlusWindow, font=("Arial", 30), fg_color="#6A0DAD")
+        self.plus_window_btn.grid(row=0, column=8, padx=10, pady=50, columnspan=1, ipadx=20)
+
+        # 3. Exit Button (Moved to Row 0, Col 9)
+        self.Exit = ctk.CTkButton(self.window, text="Exit", command=self.window.destroy, font=("Arial", 30))
+        # Note: changed command from self.window.quit to self.window.destroy for cleaner closing of specific window
+        self.Exit.grid(row=0, column=9, padx=10, pady=50, columnspan=1, sticky='e')
+        
+        # IMPORTANT: Removed self.window.mainloop() from here!
+
+# Create the main application instance
+ShopApp = ShoppingCartApp(is_secondary=False)
+
+# Start the main event loop
+ShopApp.window.mainloop()
