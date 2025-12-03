@@ -1,13 +1,17 @@
-import sqlite3
-from tkinter import ttk
+from tkinter import ttk, Tk
 from ttkthemes import ThemedTk
 from tkcalendar import Calendar
 from datetime import datetime
+import sqlite3
 
 class SalesViewerApp:
     def __init__(self, root):
         self.root = root
         self.root.title("Sales Viewer")
+
+        # 🔹 Create a custom style for the scrollbar
+        style = ttk.Style()
+        style.configure("Vertical.TScrollbar", gripcount=0, background="gray", troughcolor="lightgray", borderwidth=2, width=30)  # 👈 Make it wider
 
         # Create a frame for the date pickers and the update button
         date_frame = ttk.LabelFrame(root, text="Select Date Range")
@@ -32,17 +36,35 @@ class SalesViewerApp:
         # Save the report menu as an instance variable
         self.report_menu = report_menu
 
-        self.tree = ttk.Treeview(root, columns=("ID", "Bill Number", "Sale Date", "Sale Time", "Price Sold", "Employee"), height=25)
+        # 🔹 Create a frame for the treeview and scrollbar
+        tree_frame = ttk.Frame(root)
+        tree_frame.pack(padx=10, pady=10, fill="both", expand=True)
+
+        # 🔹 Create a **thick vertical scrollbar**
+        tree_scroll = ttk.Scrollbar(tree_frame, orient="vertical", style="Vertical.TScrollbar")
+
+        # 🔹 Create the Treeview and configure the scrollbar
+        self.tree = ttk.Treeview(tree_frame, columns=("ID", "Bill Number", "Sale Date", "Sale Time", "Price Sold", "Employee"), height=25, yscrollcommand=tree_scroll.set)
+
+        # 🔹 Configure the scrollbar to scroll the treeview
+        tree_scroll.config(command=self.tree.yview)
+        
+        # Pack the treeview and scrollbar
+        self.tree.pack(side="left", fill="both", expand=True)
+        tree_scroll.pack(side="right", fill="y")  # 🔹 Place scrollbar to the right with a **thicker size**
+
+        # Configure Treeview headings
         self.tree.heading("#0", text="")
         self.tree.heading("#1", text="Bill Number")
         self.tree.heading("#2", text="Sale Date")
         self.tree.heading("#3", text="Sale Time")
         self.tree.heading("#4", text="Price Sold")
         self.tree.heading("#5", text="Employee")
-        self.tree.pack(padx=10, pady=10)
+
+        # Apply font settings
         self.tree.tag_configure('font', font=('Arial', 17))
-                    
-        # Populate the treeview with sales for the current date range and report type
+
+        # Populate the treeview initially
         self.populate_treeview()
 
     def populate_treeview(self):
@@ -67,15 +89,15 @@ class SalesViewerApp:
                 if report_type == "Daily":
                     # Customize the query for weekly report
                     query = """
-                        SELECT strftime('%Y-%m-%d', sale_date) AS date, SUM(price_sold) AS total_price_sold
+                        SELECT strftime('%Y-%m-%d', sale_date) AS date, COUNT(DISTINCT bill_number) AS bill_count, SUM(price_sold) AS total_price_sold
                         FROM sales
                         WHERE sale_date >= ? AND sale_date <= ?
                         GROUP BY date
                         ORDER BY date
                     """
                     self.tree.heading("#1", text="Day")
-                    self.tree.heading("#2", text="Total Price Sold")
-                    self.tree.heading("#3", text="")
+                    self.tree.heading("#2", text="Bill Count")
+                    self.tree.heading("#3", text="Total Price Sold")
                     self.tree.heading("#4", text="")
                     self.tree.heading("#5", text="")
                     self.tree.heading("#6", text="")
