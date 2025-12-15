@@ -12,6 +12,15 @@ import customtkinter as ctk
 from CTkListbox import *
 import pygame
 
+# --- FIX FOR WINDOWS SCALING (Prevents cropping at 125%/150%) ---
+try:
+    from ctypes import windll
+    # This tells Windows: "I am DPI aware, don't scale me!"
+    windll.shcore.SetProcessDpiAwareness(1)
+except Exception:
+    pass
+# ---------------------------------------------------------------
+
 # Windows specific imports
 try:
     import win32api
@@ -22,12 +31,8 @@ except ImportError:
 # --- Configuration ---
 ctk.set_appearance_mode('dark')
 ctk.set_default_color_theme("blue")
-
-# --- FIX FOR WINDOWS DISPLAY SCALING (125%, 150%, etc.) ---
-# This forces the app to treat the screen as 100% scale, fixing layout bugs in fullscreen
-ctk.set_widget_scaling(1.0) # You can adjust this if needed, but 1.0 is the standard fix
-# ------------------------------------------------------------
-
+# Reset widget scaling to default (let the DPI awareness handle the resolution)
+ctk.set_widget_scaling(1.0)
 
 def resource_path(relative_path):
 # ... (rest of the resource_path function is unchanged)
@@ -381,7 +386,7 @@ class ShoppingCartApp:
         if not pygame.mixer.get_init():
             try:
                 pygame.mixer.init()
-                pygame.mixer.music.load(r"D:\Work\SimplePOS2\RealUse\SimplePOS\s.mp3") 
+                pygame.mixer.music.load(r"C:\Users\POS\Desktop\Program\SimplePOS\s.mp3") 
             except Exception as e:
                 print(f"Sound init failed (continuing without sound): {e}")
 
