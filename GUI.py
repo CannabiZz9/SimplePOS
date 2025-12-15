@@ -2,24 +2,22 @@ import os
 import sys
 import subprocess
 import tkinter as tk
-from tkinter import ttk
 import sqlite3
 from datetime import datetime
 import tempfile
+import threading
 
 # Third-party libraries
 import customtkinter as ctk
 from CTkListbox import *
 import pygame
 
-# --- FIX FOR WINDOWS SCALING (Prevents cropping at 125%/150%) ---
+# --- FIX FOR WINDOWS SCALING ---
 try:
     from ctypes import windll
-    # This tells Windows: "I am DPI aware, don't scale me!"
     windll.shcore.SetProcessDpiAwareness(1)
 except Exception:
     pass
-# ---------------------------------------------------------------
 
 # Windows specific imports
 try:
@@ -31,12 +29,9 @@ except ImportError:
 # --- Configuration ---
 ctk.set_appearance_mode('dark')
 ctk.set_default_color_theme("blue")
-# Reset widget scaling to default (let the DPI awareness handle the resolution)
 ctk.set_widget_scaling(1.0)
 
 def resource_path(relative_path):
-# ... (rest of the resource_path function is unchanged)
-    """ Get absolute path to resource, works for dev and for PyInstaller """
     try:
         base_path = sys._MEIPASS
     except Exception:
@@ -44,10 +39,8 @@ def resource_path(relative_path):
     return os.path.join(base_path, relative_path)
 
 # --- Database Setup ---
-# ... (rest of the file is unchanged)
 connection = sqlite3.connect('sales_history.db', check_same_thread=False)
 cursor = connection.cursor()
-
 cursor.execute('''
     CREATE TABLE IF NOT EXISTS sales (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -59,234 +52,174 @@ cursor.execute('''
     )
 ''')
 
-class ShoppingCartApp:
-# ... (rest of the class is unchanged)
-    def __init__(self, is_secondary=False):
-        self.is_secondary = is_secondary
-        self.histrywindow = None
+# ==============================================================================
+# CLASS: POS TERMINAL (Represents ONE Station)
+# ==============================================================================
+class POSTerminal(ctk.CTkFrame):
+    def __init__(self, master, station_id, **kwargs):
+        super().__init__(master, **kwargs)
+        self.station_id = station_id
         
-        # --- Window Setup ---
-        if self.is_secondary:
-            self.window = ctk.CTkToplevel()
-            self.window.title("Shopping Cart (Window 2)")
-            
-            # --- DUAL MONITOR LOGIC ---
-            # Get the width of the primary screen
-            screen_width = self.window.winfo_screenwidth()
-            
-            # Set the position of the new window to start where the first screen ends
-            self.window.geometry(f"1000x800+{screen_width}+0")
-            
-            self.window.attributes('-fullscreen', False)
-        else:
-            self.window = ctk.CTk()
-            self.window.title("Shopping Cart")
-            self.window.attributes('-fullscreen', True)
-        
-        # Screen dimensions
-        self.screen_width = self.window.winfo_screenwidth()
-        self.screen_height = self.window.winfo_screenheight()
-        
-        # Variables
+        # --- Independent Variables ---
         self.cart = []
-        self.current_price = 0
         self.Sumprice = 0
         self.allitem_quantity = 0
-        self.employee = "Default"
+        self.employee = f"Station_{station_id}"
         
-        # Reference to keep secondary window alive
-        self.second_app_instance = None 
-
+        # Layout
+        self.columnconfigure(0, weight=1)
+        self.rowconfigure(1, weight=1)
+        
+        # Header Color
+        title_color = "#1F6AA5" if station_id == 1 else "#D84315"
+        self.header = ctk.CTkLabel(self, text=f"POS STATION {station_id}", fg_color=title_color, height=35, font=("Arial", 18, "bold"))
+        self.header.pack(fill="x")
+        
+        self.content_frame = ctk.CTkFrame(self, fg_color="transparent")
+        self.content_frame.pack(fill="both", expand=True, padx=20, pady=15)
+        
         self.create_widgets()
-    
-    def PlusWindow(self):
-        """Opens the secondary window."""
-        self.play_sound()
-        if self.second_app_instance is None or not self.second_app_instance.window.winfo_exists():
-            self.second_app_instance = ShoppingCartApp(is_secondary=True)
-            self.second_app_instance.window.lift()
-        else:
-            self.second_app_instance.window.lift()
 
-    def append_to_price_entry(self, value):
-        current_text = self.price_entry.get()
-        if current_text == "0" or current_text == "":
-            current_text = ""
-        self.price_entry.delete(0, "end")
-        self.price_entry.insert(0, current_text + str(value))
-        self.play_sound()
-
-    def clear_price_entry(self):
-        self.price_entry.delete(0, "end")
-        self.price_entry.insert(0, "0")
-        self.play_sound()
-        
-    def add_to_cart(self):
-        self.play_sound()
-        self.item_quantity = 1
-        input_string = self.price_entry.get()
-        parts = input_string.split('*')
-
-        try:
-            self.item_price = float(parts[0])
-            self.item_quantity = int(parts[1]) if len(parts) > 1 else 1
-        except (ValueError, IndexError):
-            self.item_price = 0
-            self.item_quantity = 1
-            
-        self.item_overall_price = (self.item_price * self.item_quantity)
-        
-        if self.item_price != 0:
-            self.cart.append(self.item_price)
-            self.cart.append(self.item_quantity) 
-            self.cart.append(self.item_overall_price)
-            self.current_price = 0
-            self.price_entry.delete(0, "end")
-            self.price_entry.insert(0, "0")
-            self.updateCart()
-    
-    def removefromcart(self):
-        self.index = self.cart_listbox.curselection()
-        if self.index is not None and self.index != (): 
+    def create_widgets(self):
+        # Sound Init
+        if not pygame.mixer.get_init():
             try:
-                idx = int(self.index)
-                self.cart.pop(idx * 3)
-                self.cart.pop(idx * 3)
-                self.cart.pop(idx * 3)
-                self.updateCart()
-            except Exception as e:
-                print(f"Error removing item: {e}")
-        else:
-            print("\nDidn't select anything to remove")
+                pygame.mixer.init()
+                try: pygame.mixer.music.load(resource_path("s.mp3"))
+                except: pass
+            except: pass
+
+        # --- CALCULATOR (Left) ---
+        self.calc_area = ctk.CTkFrame(self.content_frame)
+        self.calc_area.pack(side="left", fill="both", expand=True, padx=(5, 15))
+        
+        self.price_entry = ctk.CTkEntry(self.calc_area, height=60, font=("Arial", 40), justify="right")
+        self.price_entry.insert(0, "0")
+        self.price_entry.pack(fill="x", padx=10, pady=10)
+        
+        # Keypad
+        self.keypad_frame = ctk.CTkFrame(self.calc_area, fg_color="transparent")
+        self.keypad_frame.pack(fill="both", expand=True, padx=5, pady=5)
+        
+        btn_bg, btn_fg, btn_active = "#3a3a3a", "white", "#505050"
+        
+        keys = [
+            ('7', 0, 0), ('8', 0, 1), ('9', 0, 2), ('C', 0, 3),
+            ('4', 1, 0), ('5', 1, 1), ('6', 1, 2), ('<--', 1, 3),
+            ('1', 2, 0), ('2', 2, 1), ('3', 2, 2), ('x', 2, 3),
+            ('0', 3, 0), ('.', 3, 2), ('ADD', 3, 3) 
+        ]
+        
+        for key, r, c in keys:
+            cmd = lambda x=key: self.keypad_action(x)
+            bg_color = btn_bg
+            if key == 'C': bg_color = "#C62828"
+            elif key == '<--': bg_color = "#EF6C00"
+            elif key == 'x': bg_color = "#1565C0"
+            elif key == 'ADD': bg_color = "green"
+            
+            colspan = 2 if key == '0' else 1
+            
+            btn = tk.Button(self.keypad_frame, text=key, command=cmd,
+                            font=("Arial", 24, "bold"), bg=bg_color, fg=btn_fg,
+                            activebackground=btn_active, activeforeground=btn_fg,
+                            relief="flat", borderwidth=0)
+            btn.grid(row=r, column=c, columnspan=colspan, padx=3, pady=3, sticky="nsew")
+
+        for i in range(4): self.keypad_frame.columnconfigure(i, weight=1)
+        for i in range(4): self.keypad_frame.rowconfigure(i, weight=1)
+
+        # --- CART (Right) ---
+        # CHANGE 1: Increased Width from 300 -> 500
+        self.cart_area = ctk.CTkFrame(self.content_frame, width=1200) 
+        self.cart_area.pack(side="right", fill="y", padx=5)
+        
+        # CHANGE 2: Increased Font from 24 -> 50
+        # Note: 'Angsana New' is a small font, so 50 looks like normal size 30 in other fonts.
+        self.cart_listbox = CTkListbox(self.cart_area, height=250, font=("Angsana New", 40))
+        self.cart_listbox.pack(fill="both", expand=True, padx=5, pady=5)
+        
+        self.btn_row = ctk.CTkFrame(self.cart_area)
+        self.btn_row.pack(fill="x", pady=5)
+        
+        self.btn_remove = ctk.CTkButton(self.btn_row, text="Remove", command=self.removefromcart, fg_color="#555", width=200, height=90, font=("Arial", 18))
+        self.btn_remove.pack(side="left", padx=5, expand=True)
+        
+        self.btn_clear = ctk.CTkButton(self.btn_row, text="Clear", command=self.clearcart, fg_color="#555", width=200, height=90, font=("Arial", 18))
+        self.btn_clear.pack(side="right", padx=5, expand=True)
+        
+        self.lbl_total = ctk.CTkLabel(self.cart_area, text="Total: 0 ฿", font=("Arial", 40, "bold"), text_color="#4CAF50")
+        self.lbl_total.pack(pady=5)
+        
+        self.btn_checkout = ctk.CTkButton(self.cart_area, text="CHECKOUT", command=self.Checkout, 
+                                          font=("Arial", 30, "bold"), height=90, fg_color="#00C853")
+        self.btn_checkout.pack(fill="x", padx=10, pady=(0, 10))
+
+    # --- LOGIC ---
+    def keypad_action(self, key):
         self.play_sound()
-    
+        if key == 'C': self.price_entry.delete(0, 'end'); self.price_entry.insert(0, "0")
+        elif key == '<--': 
+            curr = self.price_entry.get()
+            if len(curr) > 0: self.price_entry.delete(len(curr)-1, 'end')
+        elif key == 'x': self.price_entry.insert('end', '*')
+        elif key == 'ADD': self.add_to_cart()
+        else:
+            if self.price_entry.get() == "0": self.price_entry.delete(0, 'end')
+            self.price_entry.insert('end', key)
+
+    def play_sound(self):
+        if pygame.mixer.get_init():
+            try: pygame.mixer.music.play()
+            except: pass
+
+    def add_to_cart(self):
+        try:
+            val = self.price_entry.get()
+            parts = val.split('*')
+            price = float(parts[0])
+            qty = int(parts[1]) if len(parts) > 1 else 1
+            if price > 0:
+                self.cart.extend([price, qty, price*qty])
+                self.update_cart_display()
+                self.price_entry.delete(0, 'end'); self.price_entry.insert(0, "0")
+        except: pass
+
+    def removefromcart(self):
+        sel = self.cart_listbox.curselection()
+        if sel is not None:
+            try:
+                idx = int(sel)
+                for _ in range(3): self.cart.pop(idx * 3)
+                self.update_cart_display()
+            except: pass
+
     def clearcart(self):
         self.cart = []
-        self.updateCart()
-        self.play_sound()
-    
-    def updateCart(self):
-        self.cart_listbox.delete(0,'end')
+        self.update_cart_display()
+
+    def update_cart_display(self):
+        self.cart_listbox.delete(0, 'end')
         self.Sumprice = 0
-        self.allitem_quantity = 0
-        
-        # Helper to remove decimal if it's .0
-        def fmt(val):
-            return int(val) if float(val).is_integer() else val
+        def fmt(v): return int(v) if float(v).is_integer() else v
+        idx = 0
+        for i in range(0, len(self.cart), 3):
+            p, q, t = self.cart[i], self.cart[i+1], self.cart[i+2]
+            self.Sumprice += t
+            self.cart_listbox.insert(idx, f"{idx+1}) {fmt(p)}฿ x {fmt(q)} = {fmt(t)}฿")
+            idx += 1
+        self.lbl_total.configure(text=f"Total: {fmt(self.Sumprice)}฿")
 
-        display_index = 0
-        for x in range(0, len(self.cart), 3):
-            self.item_name = f"{display_index + 1})"
-            
-            # Apply formatting here for display
-            self.item_price = fmt(self.cart[x])
-            self.item_quantity = fmt(self.cart[x+1])
-            self.item_overall_price = fmt(self.cart[x+2])
-            
-            self.allitem_quantity += self.cart[x+1] # Keep raw math on the float value
-            self.Sumprice += self.cart[x+2]         # Keep raw math on the float value
-            
-            display_text = f"{self.item_name}  {self.item_price}฿  {self.item_quantity} ชิ้น --> {self.item_overall_price}฿"
-            self.cart_listbox.insert(display_index, display_text)
-            display_index += 1
-            
-        self.total_label.configure(text=f"Total: {fmt(self.Sumprice)}฿")
-        self.totalquantity_label.configure(self.total_frame, text=f"จำนวนทั้งหมด : {int(self.allitem_quantity)} ชิ้น")
-        self.check_cart()
-        
-    def delete_last_digit(self):
-        current_text = self.price_entry.get()
-        if len(current_text) > 0:
-            self.price_entry.delete(len(current_text)-1, 'end')
-        self.play_sound()    
+    def Checkout(self):
+        if not self.cart: return
+        self.play_sound()
+        receipt_text = self.generate_receipt_text()
+        threading.Thread(target=self.run_checkout_thread, args=(receipt_text, self.Sumprice, self.employee)).start()
+        self.clearcart()
 
-    def generate_receipt(self):
-        bill_number = self.generate_bill_number()
-        sale_date = datetime.now().strftime('%d/%m/%Y')
-        sale_time = datetime.now().time()
-        billsale_time_str = sale_time.strftime('%H:%M')
-        itemscart = self.cart
-        
-        # --- NEW HELPER FUNCTION ---
-        def fmt(val):
-            """Returns int if value is whole number, else returns float"""
-            try:
-                f_val = float(val)
-                if f_val.is_integer():
-                    return int(f_val)
-                return f_val
-            except:
-                return val
-        # ---------------------------
-        
-        header = """
-       {title:^31}
-       {subtitle:^28}
-       {address:^32}   
-       {open_hours:^31}
-        """.format(
-            title="ร้านข้าวแต๋น",
-            subtitle="ของฝากจากลำปาง",
-            address="ตึกสีส้มทางเข้า HOP INN",
-            open_hours="เปิด 8.00-21.00น. ทุกวัน"
-        )
-
-        middle = """
-{left_text:<14}{right_text:>19}
-{bill_number:<20}
-        """.format(
-            left_text=f"วันที่ {sale_date}",
-            right_text=f"เวลา {billsale_time_str}",
-            bill_number=f"เลขที่บิล: {bill_number}"
-        )
-
-        itemfirst = "\nรายการ:\n-------------------------------------------"
-
-        items = ""
-        for x in range(0, len(itemscart), 3):
-            # Apply the formatting logic here
-            p_val = fmt(itemscart[x])
-            q_val = fmt(itemscart[x+1])
-            sum_val = fmt(itemscart[x+2])
-
-            items += """
-ราคา    {item_info:<5} ฿    {item_quan:<3} ชิ้น  =>  {itemsumprice:>1} ฿
-""".format(
-                item_info=f" {p_val}",
-                item_quan=f" {q_val}",
-                itemsumprice=f" {sum_val}"
-            )
-
-        quan_item = """
-สินค้า :    {item_quan:<5} รายการ   รวม  {allitemquan:>1} ชิ้น
-""".format(
-            item_quan=f" {int(len(itemscart)/3)}",
-            allitemquan=f" {int(self.allitem_quantity)}" # Force int for total quantity
-        )
-
-        itemlast = "\n-------------------------------------------\n"
-
-        # Apply formatting to the total price
-        total_val = fmt(self.Sumprice)
-
-        total = """            {total_label:>21} {total_amount:>10} 
-        """.format(
-            total_label="  รวม: ",
-            total_amount=f"  {total_val}  ฿"
-        )
-
-        footer = """
-          {thanks:^22}
-          {tel_info:>22}
-          
-        """.format(
-            thanks="ขอบคุณเจ้า",
-            tel_info="โทร : 054-230189\n\n"
-        )
-        blank = "\n\n\n"
-
-        receipt = f"{header}{middle}{itemfirst}{items}{quan_item}{itemlast}{total}{footer}{blank}"
-        return receipt.encode('utf-8').decode('utf-8')     
+    def run_checkout_thread(self, text, price, emp):
+        self.print_receipt(text)
+        self.save_to_db(price, emp)
 
     def print_receipt(self, text_to_print):
         try:
@@ -313,191 +246,176 @@ class ShoppingCartApp:
         except Exception as e:
             print(f"File handling error during print: {e}")
 
-    def Checkout(self):
-        self.play_sound()
-        text_to_print = self.generate_receipt()
-        self.print_receipt(text_to_print)
-        self.add_sale(self.Sumprice, self.employee)
-        self.clearcart()
-        
+    def save_to_db(self, price, emp):
+        try:
+            bill = f"B{datetime.now().strftime('%y%m%d%H%M%S')}"
+            cursor.execute("INSERT INTO sales (bill_number, sale_date, sale_time, price_sold, employee) VALUES (?,?,?,?,?)",
+                           (bill, datetime.now().date(), datetime.now().time().strftime('%H:%M:%S'), price, emp))
+            connection.commit()
+        except: pass
+
     def generate_bill_number(self):
         timestamp = datetime.now().strftime('%y%m%d%H%M%S')
         return f'B{timestamp}'
     
-    def add_sale(self, price, employee):
-        try:
-            bill_number = self.generate_bill_number()
-            sale_date = datetime.now().date()
-            sale_time = datetime.now().time()
-            sale_time_str = sale_time.strftime('%H:%M:%S')
-            cursor.execute('''
-                INSERT INTO sales (bill_number, sale_date, sale_time, price_sold, employee)
-                VALUES (?, ?, ?, ?, ?)
-            ''', (bill_number, sale_date, sale_time_str, price, employee))
-            connection.commit()
-        except Exception as e:
-            print(f"Database Error: {e}")
-    
-    def check_cart(self):
-        if len(self.cart) > 0:
-            self.Print.configure(state=ctk.NORMAL)
-            self.clearcart_Button.configure(state=ctk.NORMAL)
-            self.RemoveButton.configure(state=ctk.NORMAL)
+    def generate_receipt_text(self):
+        bill_number = self.generate_bill_number()
+        sale_date = datetime.now().strftime('%d/%m/%Y')
+        sale_time = datetime.now().time()
+        billsale_time_str = sale_time.strftime('%H:%M')
+        itemscart = self.cart
+        
+        def fmt(val):
+            try:
+                f_val = float(val)
+                if f_val.is_integer():
+                    return int(f_val)
+                return f_val
+            except:
+                return val
+        
+        header = """
+       {title:^31}
+       {subtitle:^28}
+       {address:^32}   
+       {open_hours:^31}
+        """.format(
+            title="ร้านข้าวแต๋น",
+            subtitle="ของฝากจากลำปาง",
+            address="ตึกสีส้มทางเข้า HOP INN",
+            open_hours="เปิด 8.00-21.00น. ทุกวัน"
+        )
+
+        middle = """
+{left_text:<14}{right_text:>19}
+{bill_number:<20}
+        """.format(
+            left_text=f"วันที่ {sale_date}",
+            right_text=f"เวลา {billsale_time_str}",
+            bill_number=f"เลขที่บิล: {bill_number}"
+        )
+
+        itemfirst = "\nรายการ:\n-------------------------------------------"
+
+        items = ""
+        for x in range(0, len(itemscart), 3):
+            p_val = fmt(itemscart[x])
+            q_val = fmt(itemscart[x+1])
+            sum_val = fmt(itemscart[x+2])
+            self.allitem_quantity += self.cart[x+1] 
+
+            items += """
+ราคา    {item_info:<5} ฿    {item_quan:<3} ชิ้น  =>  {itemsumprice:>1} ฿
+""".format(
+                item_info=f" {p_val}",
+                item_quan=f" {q_val}",
+                itemsumprice=f" {sum_val}"
+            )
+
+        quan_item = """
+สินค้า :    {item_quan:<5} รายการ   รวม  {allitemquan:>1} ชิ้น
+""".format(
+            item_quan=f" {int(len(itemscart)/3)}",
+            allitemquan=f" {int(self.allitem_quantity)}"
+        )
+
+        itemlast = "\n-------------------------------------------\n"
+        total_val = fmt(self.Sumprice)
+        total = """            {total_label:>21} {total_amount:>10} 
+        """.format(
+            total_label="  รวม: ",
+            total_amount=f"  {total_val}  ฿"
+        )
+
+        footer = """
+          {thanks:^22}
+          {tel_info:>22}
+          
+        """.format(
+            thanks="ขอบคุณเจ้า",
+            tel_info="โทร : 054-230189\n\n"
+        )
+        blank = "\n\n\n"
+
+        receipt = f"{header}{middle}{itemfirst}{items}{quan_item}{itemlast}{total}{footer}{blank}"
+        return receipt.encode('utf-8').decode('utf-8')
+
+# ==============================================================================
+# MAIN APP (The Manager)
+# ==============================================================================
+class MainApp:
+    def __init__(self):
+        self.root = ctk.CTk()
+        self.root.title("Dual Station POS")
+        
+        self.screen_width = self.root.winfo_screenwidth()
+        self.screen_height = self.root.winfo_screenheight() - 50
+        self.is_dual_mode = False 
+        
+        # --- 1. TOP BAR ---
+        self.top_bar = ctk.CTkFrame(self.root, height=60, fg_color="#222")
+        self.top_bar.pack(side="top", fill="x")
+        
+        self.btn_toggle = ctk.CTkButton(self.top_bar, text="Switch to DUAL Mode", 
+                                        command=self.toggle_mode, fg_color="#6A0DAD")
+        self.btn_toggle.pack(side="left", padx=10, pady=5)
+        
+        self.btn_history = ctk.CTkButton(self.top_bar, text="History", command=self.open_history)
+        self.btn_history.pack(side="left", padx=10, pady=5)
+
+        self.btn_exit = ctk.CTkButton(self.top_bar, text="Exit App", command=self.root.destroy, fg_color="red")
+        self.btn_exit.pack(side="right", padx=10, pady=5)
+        
+        # --- 2. MAIN CONTAINER ---
+        self.container = ctk.CTkFrame(self.root, fg_color="#333")
+        self.container.pack(fill="both", expand=True)
+        
+        # --- 3. CREATE STATIONS ---
+        self.pos_left = POSTerminal(self.container, station_id=1, fg_color="#2b2b2b")
+        self.pos_right = POSTerminal(self.container, station_id=2, fg_color="#2b2b2b")
+        self.divider = ctk.CTkFrame(self.container, width=5, fg_color="black")
+        
+        self.update_layout()
+
+    def toggle_mode(self):
+        self.is_dual_mode = not self.is_dual_mode
+        if self.is_dual_mode:
+            self.btn_toggle.configure(text="Switch to SINGLE Mode")
         else:
-            self.Print.configure(state=ctk.DISABLED)
-            self.clearcart_Button.configure(state=ctk.DISABLED)
-            self.RemoveButton.configure(state=ctk.DISABLED)
-            
-    def go2history(self):
-        self.play_sound()
-        possible_paths = [
-            r"C:\Users\POS\Desktop\Program\Program\GUISale.py",
-            r"D:\Work\SimplePOS2\RealUse\SimplePOS\GUISale.py",
-            "GUISale.py"
-        ]
-        
-        found_path = None
-        for path in possible_paths:
-            if os.path.exists(path):
-                found_path = path
-                break
-        
-        if found_path:
-            try:
-                subprocess.run(['python', found_path])
-            except Exception as e:
-                print(f"Could not open history: {e}")
+            self.btn_toggle.configure(text="Switch to DUAL Mode")
+        self.update_layout()
+
+    def update_layout(self):
+        if self.is_dual_mode:
+            total_width = self.screen_width * 2
+            self.root.geometry(f"{total_width}x{self.screen_height}+0+0")
         else:
-            print("History file 'GUISale.py' not found.")
-        
-    def play_sound(self):
-        if pygame.mixer.get_init():
-            try:
-                pygame.mixer.music.play()
-            except Exception:
-                pass
-    
-    def koon(self, value):
-        self.play_sound()
-        self.price_entry.insert('end', value)
-        
-    def create_widgets(self):
-        # Initialize Sound
-        if not pygame.mixer.get_init():
-            try:
-                pygame.mixer.init()
-                pygame.mixer.music.load(r"C:\Users\POS\Desktop\Program\SimplePOS\s.mp3") 
-            except Exception as e:
-                print(f"Sound init failed (continuing without sound): {e}")
-
-        # --- CALCULATOR SECTION ---
-        self.calculator_frame = ctk.CTkFrame(self.window)
-        self.calculator_frame.grid(row=1, column=2, columnspan=4, padx=40, pady=5)
-        
-        self.price_label = ctk.CTkLabel(self.window, text="Price:", font=("Arial", 27))
-        self.price_label.grid(row=0, column=2, padx=10, pady=50)
-        
-        self.price_entry = ctk.CTkEntry(self.window, width=250, height=35, font=("Arial", 27))
-        self.price_entry.insert(0, "0") 
-        self.price_entry.grid(row=0, column=3, padx=10, pady=50)
-
-        # Calculator Buttons
-        self.calculator_buttons = {}
-        for i in range(9):
-            btn_txt = str(i+1)
-            button = ctk.CTkButton(self.calculator_frame, text=btn_txt, 
-                                   command=lambda x=btn_txt: self.append_to_price_entry(x),
-                                   font=("Arial", 27))
-            button.grid(row=(2 - i // 3), column=(i % 3), padx=10, pady=10, ipady=40)
-            self.calculator_buttons[btn_txt] = button
+            self.root.geometry(f"{self.screen_width}x{self.screen_height}+0+0")
             
-        self.zero_button = ctk.CTkButton(self.calculator_frame, text="0", 
-                                         command=lambda: self.append_to_price_entry(0),
-                                         font=("Arial", 27))
-        self.zero_button.grid(row=3, column=0, padx=10, pady=10, columnspan=2, ipadx=95, ipady=40)
-        
-        self.dot_button = ctk.CTkButton(self.calculator_frame, text=".", 
-                                        command=lambda: self.append_to_price_entry("."),
-                                        font=("Arial", 27))
-        self.dot_button.grid(row=3, column=2, padx=10, pady=10, ipady=40)
-        
-        self.clear_button = ctk.CTkButton(self.calculator_frame, text=" C ", 
-                                          command=self.clear_price_entry,
-                                          font=("Arial", 27), fg_color="red")
-        self.clear_button.grid(row=0, column=3, padx=10, pady=10, ipady=40)
-        
-        self.koon_button = ctk.CTkButton(self.calculator_frame, text=" x ", 
-                                         command=lambda: self.koon('*'),
-                                         font=("Arial", 27), fg_color="blue")
-        self.koon_button.grid(row=2, column=3, padx=10, pady=10, ipady=40)
-        
-        self.del1_button = ctk.CTkButton(self.calculator_frame, text="<--", 
-                                         command=self.delete_last_digit,
-                                         font=("Arial", 27), fg_color="#FC6736")
-        self.del1_button.grid(row=1, column=3, padx=10, pady=10, ipady=40)
-        
-        self.add_to_cart_button = ctk.CTkButton(self.calculator_frame, text="add", 
-                                                command=self.add_to_cart,
-                                                font=("Arial", 27), fg_color="green")
-        self.add_to_cart_button.grid(row=3, column=3, padx=10, pady=10, ipady=40)
-        
-        # --- CART SECTION ---
-        self.cart_frame = ctk.CTkFrame(self.window)
-        self.cart_frame.grid(row=1, column=6, columnspan=3, padx=35, pady=0)
-        
-        self.buttoncart_frame = ctk.CTkFrame(self.cart_frame)
-        self.buttoncart_frame.grid(row=0, column=4, columnspan=2, padx=35, pady=0)
-        
-        self.cart_label = ctk.CTkLabel(self.cart_frame, text="Cart: ", font=("Arial", 27))
-        self.cart_label.grid(row=0, column=0, columnspan=1, padx=10, pady=10)
-        
-        self.cart_listbox = CTkListbox(self.cart_frame, height=400, width=275, font=("Angsana New", 39))
-        self.cart_listbox.grid(row=0, column=1, columnspan=2, padx=10, pady=10)
-        
-        self.RemoveButton = ctk.CTkButton(self.buttoncart_frame, text="Remove", 
-                                          command=self.removefromcart,
-                                          font=("Arial", 30), state=ctk.DISABLED)
-        self.RemoveButton.grid(row=0, column=0, padx=10, pady=20, ipady=20)
-        
-        self.clearcart_Button = ctk.CTkButton(self.buttoncart_frame, text="Clear", 
-                                              command=self.clearcart,
-                                              font=("Arial", 30), state=ctk.DISABLED)
-        self.clearcart_Button.grid(row=1, column=0, padx=10, pady=20, ipady=20)
+        self.root.overrideredirect(True) 
 
-        # --- TOTAL & PRINT SECTION ---
-        self.total_frame = ctk.CTkFrame(self.window)
-        self.total_frame.grid(row=2, column=5, columnspan=4, padx=10, pady=10)
-        
-        self.total_label = ctk.CTkLabel(self.total_frame, text=f"Total: {self.Sumprice}฿", font=("Arial", 40))
-        self.total_label.grid(row=0, column=0, padx=10, pady=10)
-        
-        self.totalquantity_label = ctk.CTkLabel(self.total_frame, 
-                                                text=f"จำนวนทั้งหมด : {int(self.allitem_quantity)} ชิ้น",
-                                                font=("Arial", 27))
-        self.totalquantity_label.grid(row=1, column=0, padx=10, pady=10)
-        
-        self.Print = ctk.CTkButton(self.total_frame, text="Print", 
-                                   command=self.Checkout, 
-                                   font=("Arial", 27), state=ctk.DISABLED)
-        self.Print.grid(row=2, column=0, padx=10, pady=30, ipady=30)
-        
-        # --- NAVIGATION BUTTONS ---
-        self.histry_button = ctk.CTkButton(self.window, text="History", 
-                                           command=self.go2history,
-                                           font=("Arial", 30))
-        self.histry_button.grid(row=0, column=7, padx=10, pady=50, columnspan=1, ipadx=55)
+        if self.is_dual_mode:
+            self.pos_left.pack(side="left", fill="both", expand=True)
+            self.divider.pack(side="left", fill="y")
+            self.pos_right.pack(side="left", fill="both", expand=True)
+            
+            self.pos_left.configure(width=self.screen_width)
+            self.pos_right.configure(width=self.screen_width)
+            self.pos_left.pack_propagate(False)
+            self.pos_right.pack_propagate(False)
+        else:
+            self.pos_right.pack_forget()
+            self.divider.pack_forget()
+            self.pos_left.pack(side="left", fill="both", expand=True)
+            self.pos_left.pack_propagate(True)
 
-        self.plus_window_btn = ctk.CTkButton(self.window, text="+Window", 
-                                             command=self.PlusWindow, 
-                                             font=("Arial", 30), fg_color="#6A0DAD")
-        self.plus_window_btn.grid(row=0, column=8, padx=10, pady=50, columnspan=1, ipadx=20)
-
-        self.Exit = ctk.CTkButton(self.window, text="Exit", 
-                                  command=self.window.destroy,
-                                  font=("Arial", 30))
-        self.Exit.grid(row=0, column=9, padx=10, pady=50, columnspan=1, sticky='e')
-
+    def open_history(self):
+        target = "GUISale.py"
+        if os.path.exists(target):
+            subprocess.run(['python', target])
+        else:
+            print("History file not found.")
 
 if __name__ == "__main__":
-    ShopApp = ShoppingCartApp(is_secondary=False)
-    ShopApp.window.mainloop()
+    app = MainApp()
+    app.root.mainloop()
