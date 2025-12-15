@@ -290,25 +290,51 @@ class ShoppingCartApp:
 
     def print_receipt(self, text_to_print):
         try:
+            # 1. Create a temporary text file
             fd, filename = tempfile.mkstemp(".txt")
             os.close(fd)
             
             with open(filename, "w", encoding='utf-8') as file:
                 file.write(text_to_print)
 
+            # 2. FIND A PRINTER (Default -> Fallback to Any)
+            printer_name = None
+            
+            # Attempt A: Try to get the Windows Default Printer
             try:
-                # Print 2 copies (Customer + Keep)
-                for _ in range(2):
-                    win32api.ShellExecute(
-                        0,
-                        "print",
-                        filename,
-                        '/d:"%s"' % win32print.GetDefaultPrinter(),
-                        ".",
-                        0
-                    )
-            except Exception as e:
-                print(f"Printing Error: {e}")
+                printer_name = win32print.GetDefaultPrinter()
+            except Exception:
+                pass # If this fails, we move to plan B
+
+            # Attempt B: If no default, find the first installed printer
+            if not printer_name:
+                try:
+                    # EnumPrinters looks for Local (2) and Network (4) printers
+                    flags = win32print.PRINTER_ENUM_LOCAL | win32print.PRINTER_ENUM_CONNECTIONS
+                    printers = win32print.EnumPrinters(flags)
+                    if printers:
+                        # The printer name is usually at index 2 of the tuple
+                        printer_name = printers[0][2]
+                except Exception:
+                    pass
+
+            # 3. EXECUTE PRINT
+            if printer_name:
+                try:
+                    # Print 2 copies (Customer + Keep)
+                    for _ in range(2):
+                        win32api.ShellExecute(
+                            0,
+                            "printto",           # CHANGE: 'printto' allows specific printer targeting
+                            filename,
+                            f'"{printer_name}"', # CHANGE: We pass the found printer name here
+                            ".",
+                            0
+                        )
+                except Exception as e:
+                    print(f"Printing Error: {e}")
+            else:
+                print("Error: No printers found on this system.")
                 
         except Exception as e:
             print(f"File handling error during print: {e}")
