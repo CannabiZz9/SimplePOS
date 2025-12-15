@@ -12,14 +12,13 @@ import customtkinter as ctk
 from CTkListbox import *
 import pygame
 
-# --- FIX FOR WINDOWS SCALING (Prevents cropping at 125%/150%) ---
+# --- FIX FOR WINDOWS SCALING ---
 try:
     from ctypes import windll
-    # This tells Windows: "I am DPI aware, don't scale me!"
     windll.shcore.SetProcessDpiAwareness(1)
 except Exception:
     pass
-# ---------------------------------------------------------------
+# -------------------------------
 
 # Windows specific imports
 try:
@@ -31,11 +30,9 @@ except ImportError:
 # --- Configuration ---
 ctk.set_appearance_mode('dark')
 ctk.set_default_color_theme("blue")
-# Reset widget scaling to default (let the DPI awareness handle the resolution)
 ctk.set_widget_scaling(1.0)
 
 def resource_path(relative_path):
-    """ Get absolute path to resource, works for dev and for PyInstaller """
     try:
         base_path = sys._MEIPASS
     except Exception:
@@ -67,15 +64,27 @@ class ShoppingCartApp:
             self.window = ctk.CTkToplevel()
             self.window.title("Shopping Cart (Window 2)")
             
-            # --- DUAL MONITOR LOGIC ---
-            # 1. Get width of the Primary Screen
-            screen_width = self.window.winfo_screenwidth()
+            # --- FIX: PREVENT SNAP-BACK TO SCREEN 1 ---
+            # 1. Hide the window immediately so the user doesn't see the jump
+            self.window.withdraw()
             
-            # 2. Move window to the START of the 2nd screen (x = width of screen 1)
-            self.window.geometry(f"800x600+{screen_width}+0")
+            # 2. Calculate position (Start of Screen 2)
+            # Note: This assumes monitors are side-by-side. 
+            # If using "Duplicate" mode, this won't work (Must use "Extend")
+            primary_width = self.window.winfo_screenwidth()
+            self.window.geometry(f"800x600+{primary_width}+0")
             
-            # 3. Make it Fullscreen on that second monitor
-            self.window.attributes('-fullscreen', True)
+            # 3. Define the "Show" function
+            def show_secondary_window():
+                self.window.deiconify() # Show window
+                self.window.attributes('-fullscreen', True) # Force Fullscreen
+                self.window.lift() # Bring to front
+            
+            # 4. Wait 500ms (0.5 sec) before showing.
+            # This gives Windows enough time to realize the window is on Monitor 2.
+            self.window.after(500, show_secondary_window)
+            # ------------------------------------------
+            
         else:
             self.window = ctk.CTk()
             self.window.title("Shopping Cart (Main)")
@@ -98,7 +107,7 @@ class ShoppingCartApp:
         self.play_sound()
         if self.second_app_instance is None or not self.second_app_instance.window.winfo_exists():
             self.second_app_instance = ShoppingCartApp(is_secondary=True)
-            self.second_app_instance.window.lift()
+            # No need to lift here, the __init__ delay handles it
         else:
             self.second_app_instance.window.lift()
 
@@ -164,7 +173,6 @@ class ShoppingCartApp:
         self.Sumprice = 0
         self.allitem_quantity = 0
         
-        # Helper to remove decimal if it's .0
         def fmt(val):
             return int(val) if float(val).is_integer() else val
 
@@ -284,14 +292,11 @@ class ShoppingCartApp:
 
             # --- SMART PRINTER FINDER ---
             printer_name = None
-            
-            # 1. Try Default
             try:
                 printer_name = win32print.GetDefaultPrinter()
             except Exception:
                 pass
             
-            # 2. Try Any Found Printer
             if not printer_name:
                 try:
                     printers = win32print.EnumPrinters(win32print.PRINTER_ENUM_LOCAL | win32print.PRINTER_ENUM_CONNECTIONS)
@@ -300,16 +305,14 @@ class ShoppingCartApp:
                 except Exception:
                     pass
 
-            # 3. Print
             if printer_name:
                 try:
-                    # Print 2 copies (Customer + Keep)
                     for _ in range(2):
                         win32api.ShellExecute(
                             0,
-                            "printto",           # Force specific printer
+                            "printto",
                             filename,
-                            f'"{printer_name}"', # Target the found printer
+                            f'"{printer_name}"',
                             ".",
                             0
                         )
@@ -359,7 +362,6 @@ class ShoppingCartApp:
             
     def go2history(self):
         self.play_sound()
-        # Update this list if you move the history file
         possible_paths = [
             "GUISale.py",
             r"C:\Users\POS\Desktop\Program\Program\GUISale.py",
@@ -395,7 +397,6 @@ class ShoppingCartApp:
         if not pygame.mixer.get_init():
             try:
                 pygame.mixer.init()
-                # Tries to load from compiled exe resource first, then absolute path
                 try:
                     pygame.mixer.music.load(resource_path("s.mp3"))
                 except:
