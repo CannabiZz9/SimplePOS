@@ -35,7 +35,6 @@ ctk.set_default_color_theme("blue")
 ctk.set_widget_scaling(1.0)
 
 def resource_path(relative_path):
-# ... (rest of the resource_path function is unchanged)
     """ Get absolute path to resource, works for dev and for PyInstaller """
     try:
         base_path = sys._MEIPASS
@@ -44,7 +43,6 @@ def resource_path(relative_path):
     return os.path.join(base_path, relative_path)
 
 # --- Database Setup ---
-# ... (rest of the file is unchanged)
 connection = sqlite3.connect('sales_history.db', check_same_thread=False)
 cursor = connection.cursor()
 
@@ -60,7 +58,6 @@ cursor.execute('''
 ''')
 
 class ShoppingCartApp:
-# ... (rest of the class is unchanged)
     def __init__(self, is_secondary=False):
         self.is_secondary = is_secondary
         self.histrywindow = None
@@ -71,21 +68,18 @@ class ShoppingCartApp:
             self.window.title("Shopping Cart (Window 2)")
             
             # --- DUAL MONITOR LOGIC ---
-            # Get the width of the primary screen
+            # 1. Get width of the Primary Screen
             screen_width = self.window.winfo_screenwidth()
             
-            # Set the position of the new window to start where the first screen ends
-            self.window.geometry(f"1000x800+{screen_width}+0")
+            # 2. Move window to the START of the 2nd screen (x = width of screen 1)
+            self.window.geometry(f"800x600+{screen_width}+0")
             
-            self.window.attributes('-fullscreen', False)
+            # 3. Make it Fullscreen on that second monitor
+            self.window.attributes('-fullscreen', True)
         else:
             self.window = ctk.CTk()
-            self.window.title("Shopping Cart")
+            self.window.title("Shopping Cart (Main)")
             self.window.attributes('-fullscreen', True)
-        
-        # Screen dimensions
-        self.screen_width = self.window.winfo_screenwidth()
-        self.screen_height = self.window.winfo_screenheight()
         
         # Variables
         self.cart = []
@@ -178,13 +172,12 @@ class ShoppingCartApp:
         for x in range(0, len(self.cart), 3):
             self.item_name = f"{display_index + 1})"
             
-            # Apply formatting here for display
             self.item_price = fmt(self.cart[x])
             self.item_quantity = fmt(self.cart[x+1])
             self.item_overall_price = fmt(self.cart[x+2])
             
-            self.allitem_quantity += self.cart[x+1] # Keep raw math on the float value
-            self.Sumprice += self.cart[x+2]         # Keep raw math on the float value
+            self.allitem_quantity += self.cart[x+1]
+            self.Sumprice += self.cart[x+2]
             
             display_text = f"{self.item_name}  {self.item_price}฿  {self.item_quantity} ชิ้น --> {self.item_overall_price}฿"
             self.cart_listbox.insert(display_index, display_text)
@@ -207,9 +200,7 @@ class ShoppingCartApp:
         billsale_time_str = sale_time.strftime('%H:%M')
         itemscart = self.cart
         
-        # --- NEW HELPER FUNCTION ---
         def fmt(val):
-            """Returns int if value is whole number, else returns float"""
             try:
                 f_val = float(val)
                 if f_val.is_integer():
@@ -217,7 +208,6 @@ class ShoppingCartApp:
                 return f_val
             except:
                 return val
-        # ---------------------------
         
         header = """
        {title:^31}
@@ -244,7 +234,6 @@ class ShoppingCartApp:
 
         items = ""
         for x in range(0, len(itemscart), 3):
-            # Apply the formatting logic here
             p_val = fmt(itemscart[x])
             q_val = fmt(itemscart[x+1])
             sum_val = fmt(itemscart[x+2])
@@ -261,14 +250,11 @@ class ShoppingCartApp:
 สินค้า :    {item_quan:<5} รายการ   รวม  {allitemquan:>1} ชิ้น
 """.format(
             item_quan=f" {int(len(itemscart)/3)}",
-            allitemquan=f" {int(self.allitem_quantity)}" # Force int for total quantity
+            allitemquan=f" {int(self.allitem_quantity)}"
         )
 
         itemlast = "\n-------------------------------------------\n"
-
-        # Apply formatting to the total price
         total_val = fmt(self.Sumprice)
-
         total = """            {total_label:>21} {total_amount:>10} 
         """.format(
             total_label="  รวม: ",
@@ -296,38 +282,50 @@ class ShoppingCartApp:
             with open(filename, "w", encoding='utf-8') as file:
                 file.write(text_to_print)
 
-            # Find Printer
-            printer_name = win32print.GetDefaultPrinter()
+            # --- SMART PRINTER FINDER ---
+            printer_name = None
+            
+            # 1. Try Default
+            try:
+                printer_name = win32print.GetDefaultPrinter()
+            except Exception:
+                pass
+            
+            # 2. Try Any Found Printer
             if not printer_name:
-                printers = win32print.EnumPrinters(2 | 4) # Local | Network
-                if printers: printer_name = printers[0][2]
+                try:
+                    printers = win32print.EnumPrinters(win32print.PRINTER_ENUM_LOCAL | win32print.PRINTER_ENUM_CONNECTIONS)
+                    if printers:
+                        printer_name = printers[0][2]
+                except Exception:
+                    pass
 
+            # 3. Print
             if printer_name:
                 try:
-                    # --- LOOP IS HERE ---
-                    for _ in range(2): 
+                    # Print 2 copies (Customer + Keep)
+                    for _ in range(2):
                         win32api.ShellExecute(
                             0,
-                            "printto",
+                            "printto",           # Force specific printer
                             filename,
-                            f'"{printer_name}"',
+                            f'"{printer_name}"', # Target the found printer
                             ".",
                             0
                         )
                 except Exception as e:
                     print(f"Printing Error: {e}")
             else:
-                print("No printer found.")
+                print("No printers found on this system.")
                 
         except Exception as e:
-            print(f"File error: {e}")
+            print(f"File handling error during print: {e}")
 
     def Checkout(self):
         self.play_sound()
         text_to_print = self.generate_receipt()
+        # Call ONCE, let the print_receipt function handle the 2 copies loop
         self.print_receipt(text_to_print)
-        # -------------------------------
-        
         self.add_sale(self.Sumprice, self.employee)
         self.clearcart()
         
@@ -361,10 +359,10 @@ class ShoppingCartApp:
             
     def go2history(self):
         self.play_sound()
+        # Update this list if you move the history file
         possible_paths = [
+            "GUISale.py",
             r"C:\Users\POS\Desktop\Program\Program\GUISale.py",
-            r"D:\Work\SimplePOS2\RealUse\SimplePOS\GUISale.py",
-            "GUISale.py"
         ]
         
         found_path = None
@@ -397,7 +395,11 @@ class ShoppingCartApp:
         if not pygame.mixer.get_init():
             try:
                 pygame.mixer.init()
-                pygame.mixer.music.load(r"C:\Users\POS\Desktop\Program\SimplePOS\s.mp3") 
+                # Tries to load from compiled exe resource first, then absolute path
+                try:
+                    pygame.mixer.music.load(resource_path("s.mp3"))
+                except:
+                    pygame.mixer.music.load(r"C:\Users\POS\Desktop\Program\SimplePOS\s.mp3")
             except Exception as e:
                 print(f"Sound init failed (continuing without sound): {e}")
 
