@@ -12,13 +12,14 @@ import customtkinter as ctk
 from CTkListbox import *
 import pygame
 
-# --- FIX FOR WINDOWS SCALING ---
+# --- FIX FOR WINDOWS SCALING (Prevents cropping at 125%/150%) ---
 try:
     from ctypes import windll
+    # This tells Windows: "I am DPI aware, don't scale me!"
     windll.shcore.SetProcessDpiAwareness(1)
 except Exception:
     pass
-# -------------------------------
+# ---------------------------------------------------------------
 
 # Windows specific imports
 try:
@@ -30,9 +31,12 @@ except ImportError:
 # --- Configuration ---
 ctk.set_appearance_mode('dark')
 ctk.set_default_color_theme("blue")
+# Reset widget scaling to default (let the DPI awareness handle the resolution)
 ctk.set_widget_scaling(1.0)
 
 def resource_path(relative_path):
+# ... (rest of the resource_path function is unchanged)
+    """ Get absolute path to resource, works for dev and for PyInstaller """
     try:
         base_path = sys._MEIPASS
     except Exception:
@@ -40,6 +44,7 @@ def resource_path(relative_path):
     return os.path.join(base_path, relative_path)
 
 # --- Database Setup ---
+# ... (rest of the file is unchanged)
 connection = sqlite3.connect('sales_history.db', check_same_thread=False)
 cursor = connection.cursor()
 
@@ -55,6 +60,7 @@ cursor.execute('''
 ''')
 
 class ShoppingCartApp:
+# ... (rest of the class is unchanged)
     def __init__(self, is_secondary=False):
         self.is_secondary = is_secondary
         self.histrywindow = None
@@ -64,31 +70,22 @@ class ShoppingCartApp:
             self.window = ctk.CTkToplevel()
             self.window.title("Shopping Cart (Window 2)")
             
-            # --- FIX: PREVENT SNAP-BACK TO SCREEN 1 ---
-            # 1. Hide the window immediately so the user doesn't see the jump
-            self.window.withdraw()
+            # --- DUAL MONITOR LOGIC ---
+            # Get the width of the primary screen
+            screen_width = self.window.winfo_screenwidth()
             
-            # 2. Calculate position (Start of Screen 2)
-            # Note: This assumes monitors are side-by-side. 
-            # If using "Duplicate" mode, this won't work (Must use "Extend")
-            primary_width = self.window.winfo_screenwidth()
-            self.window.geometry(f"800x600+{primary_width}+0")
+            # Set the position of the new window to start where the first screen ends
+            self.window.geometry(f"1000x800+{screen_width}+0")
             
-            # 3. Define the "Show" function
-            def show_secondary_window():
-                self.window.deiconify() # Show window
-                self.window.attributes('-fullscreen', True) # Force Fullscreen
-                self.window.lift() # Bring to front
-            
-            # 4. Wait 500ms (0.5 sec) before showing.
-            # This gives Windows enough time to realize the window is on Monitor 2.
-            self.window.after(500, show_secondary_window)
-            # ------------------------------------------
-            
+            self.window.attributes('-fullscreen', False)
         else:
             self.window = ctk.CTk()
-            self.window.title("Shopping Cart (Main)")
+            self.window.title("Shopping Cart")
             self.window.attributes('-fullscreen', True)
+        
+        # Screen dimensions
+        self.screen_width = self.window.winfo_screenwidth()
+        self.screen_height = self.window.winfo_screenheight()
         
         # Variables
         self.cart = []
@@ -107,7 +104,7 @@ class ShoppingCartApp:
         self.play_sound()
         if self.second_app_instance is None or not self.second_app_instance.window.winfo_exists():
             self.second_app_instance = ShoppingCartApp(is_secondary=True)
-            # No need to lift here, the __init__ delay handles it
+            self.second_app_instance.window.lift()
         else:
             self.second_app_instance.window.lift()
 
@@ -173,6 +170,7 @@ class ShoppingCartApp:
         self.Sumprice = 0
         self.allitem_quantity = 0
         
+        # Helper to remove decimal if it's .0
         def fmt(val):
             return int(val) if float(val).is_integer() else val
 
@@ -180,12 +178,13 @@ class ShoppingCartApp:
         for x in range(0, len(self.cart), 3):
             self.item_name = f"{display_index + 1})"
             
+            # Apply formatting here for display
             self.item_price = fmt(self.cart[x])
             self.item_quantity = fmt(self.cart[x+1])
             self.item_overall_price = fmt(self.cart[x+2])
             
-            self.allitem_quantity += self.cart[x+1]
-            self.Sumprice += self.cart[x+2]
+            self.allitem_quantity += self.cart[x+1] # Keep raw math on the float value
+            self.Sumprice += self.cart[x+2]         # Keep raw math on the float value
             
             display_text = f"{self.item_name}  {self.item_price}฿  {self.item_quantity} ชิ้น --> {self.item_overall_price}฿"
             self.cart_listbox.insert(display_index, display_text)
@@ -208,7 +207,9 @@ class ShoppingCartApp:
         billsale_time_str = sale_time.strftime('%H:%M')
         itemscart = self.cart
         
+        # --- NEW HELPER FUNCTION ---
         def fmt(val):
+            """Returns int if value is whole number, else returns float"""
             try:
                 f_val = float(val)
                 if f_val.is_integer():
@@ -216,6 +217,7 @@ class ShoppingCartApp:
                 return f_val
             except:
                 return val
+        # ---------------------------
         
         header = """
        {title:^31}
@@ -242,6 +244,7 @@ class ShoppingCartApp:
 
         items = ""
         for x in range(0, len(itemscart), 3):
+            # Apply the formatting logic here
             p_val = fmt(itemscart[x])
             q_val = fmt(itemscart[x+1])
             sum_val = fmt(itemscart[x+2])
@@ -258,11 +261,14 @@ class ShoppingCartApp:
 สินค้า :    {item_quan:<5} รายการ   รวม  {allitemquan:>1} ชิ้น
 """.format(
             item_quan=f" {int(len(itemscart)/3)}",
-            allitemquan=f" {int(self.allitem_quantity)}"
+            allitemquan=f" {int(self.allitem_quantity)}" # Force int for total quantity
         )
 
         itemlast = "\n-------------------------------------------\n"
+
+        # Apply formatting to the total price
         total_val = fmt(self.Sumprice)
+
         total = """            {total_label:>21} {total_amount:>10} 
         """.format(
             total_label="  รวม: ",
@@ -290,36 +296,19 @@ class ShoppingCartApp:
             with open(filename, "w", encoding='utf-8') as file:
                 file.write(text_to_print)
 
-            # --- SMART PRINTER FINDER ---
-            printer_name = None
             try:
-                printer_name = win32print.GetDefaultPrinter()
-            except Exception:
-                pass
-            
-            if not printer_name:
-                try:
-                    printers = win32print.EnumPrinters(win32print.PRINTER_ENUM_LOCAL | win32print.PRINTER_ENUM_CONNECTIONS)
-                    if printers:
-                        printer_name = printers[0][2]
-                except Exception:
-                    pass
-
-            if printer_name:
-                try:
-                    for _ in range(2):
-                        win32api.ShellExecute(
-                            0,
-                            "printto",
-                            filename,
-                            f'"{printer_name}"',
-                            ".",
-                            0
-                        )
-                except Exception as e:
-                    print(f"Printing Error: {e}")
-            else:
-                print("No printers found on this system.")
+                # Print 2 copies (Customer + Keep)
+                for _ in range(2):
+                    win32api.ShellExecute(
+                        0,
+                        "print",
+                        filename,
+                        '/d:"%s"' % win32print.GetDefaultPrinter(),
+                        ".",
+                        0
+                    )
+            except Exception as e:
+                print(f"Printing Error: {e}")
                 
         except Exception as e:
             print(f"File handling error during print: {e}")
@@ -327,7 +316,6 @@ class ShoppingCartApp:
     def Checkout(self):
         self.play_sound()
         text_to_print = self.generate_receipt()
-        # Call ONCE, let the print_receipt function handle the 2 copies loop
         self.print_receipt(text_to_print)
         self.add_sale(self.Sumprice, self.employee)
         self.clearcart()
@@ -363,8 +351,9 @@ class ShoppingCartApp:
     def go2history(self):
         self.play_sound()
         possible_paths = [
-            "GUISale.py",
             r"C:\Users\POS\Desktop\Program\Program\GUISale.py",
+            r"D:\Work\SimplePOS2\RealUse\SimplePOS\GUISale.py",
+            "GUISale.py"
         ]
         
         found_path = None
@@ -397,10 +386,7 @@ class ShoppingCartApp:
         if not pygame.mixer.get_init():
             try:
                 pygame.mixer.init()
-                try:
-                    pygame.mixer.music.load(resource_path("s.mp3"))
-                except:
-                    pygame.mixer.music.load(r"C:\Users\POS\Desktop\Program\SimplePOS\s.mp3")
+                pygame.mixer.music.load(r"C:\Users\POS\Desktop\Program\SimplePOS\s.mp3") 
             except Exception as e:
                 print(f"Sound init failed (continuing without sound): {e}")
 
