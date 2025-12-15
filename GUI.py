@@ -23,7 +23,14 @@ except ImportError:
 ctk.set_appearance_mode('dark')
 ctk.set_default_color_theme("blue")
 
+# --- FIX FOR WINDOWS DISPLAY SCALING (125%, 150%, etc.) ---
+# This forces the app to treat the screen as 100% scale, fixing layout bugs in fullscreen
+ctk.set_widget_scaling(1.0) # You can adjust this if needed, but 1.0 is the standard fix
+# ------------------------------------------------------------
+
+
 def resource_path(relative_path):
+# ... (rest of the resource_path function is unchanged)
     """ Get absolute path to resource, works for dev and for PyInstaller """
     try:
         base_path = sys._MEIPASS
@@ -32,6 +39,7 @@ def resource_path(relative_path):
     return os.path.join(base_path, relative_path)
 
 # --- Database Setup ---
+# ... (rest of the file is unchanged)
 connection = sqlite3.connect('sales_history.db', check_same_thread=False)
 cursor = connection.cursor()
 
@@ -47,6 +55,7 @@ cursor.execute('''
 ''')
 
 class ShoppingCartApp:
+# ... (rest of the class is unchanged)
     def __init__(self, is_secondary=False):
         self.is_secondary = is_secondary
         self.histrywindow = None
