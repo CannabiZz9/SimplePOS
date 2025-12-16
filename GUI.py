@@ -148,7 +148,7 @@ class POSTerminal(ctk.CTkFrame):
         self.btn_clear = ctk.CTkButton(self.btn_row, text="Clear", command=self.clearcart, fg_color="#555", width=200, height=90, font=("Arial", 18))
         self.btn_clear.pack(side="right", padx=5, expand=True)
         
-        self.lbl_total = ctk.CTkLabel(self.cart_area, text="Total: 0 ฿", font=("Arial", 40, "bold"), text_color="#4CAF50")
+        self.lbl_total = ctk.CTkLabel(self.cart_area, text="Total:Pcs / ฿", font=("Arial", 40, "bold"), text_color="#4CAF50")
         self.lbl_total.pack(pady=5)
         
         self.btn_checkout = ctk.CTkButton(self.cart_area, text="CHECKOUT", command=self.Checkout, 
@@ -199,6 +199,7 @@ class POSTerminal(ctk.CTkFrame):
         self.update_cart_display()
 
     def update_cart_display(self):
+        self.allitem_quantity = 0
         self.cart_listbox.delete(0, 'end')
         self.Sumprice = 0
         def fmt(v): return int(v) if float(v).is_integer() else v
@@ -206,9 +207,10 @@ class POSTerminal(ctk.CTkFrame):
         for i in range(0, len(self.cart), 3):
             p, q, t = self.cart[i], self.cart[i+1], self.cart[i+2]
             self.Sumprice += t
+            self.allitem_quantity += q
             self.cart_listbox.insert(idx, f"{idx+1}) {fmt(p)}฿ x {fmt(q)} = {fmt(t)}฿")
             idx += 1
-        self.lbl_total.configure(text=f"Total: {fmt(self.Sumprice)}฿")
+        self.lbl_total.configure(text=f"{self.allitem_quantity} Pcs \ {fmt(self.Sumprice)}฿")
 
     def Checkout(self):
         if not self.cart: return
@@ -264,6 +266,7 @@ class POSTerminal(ctk.CTkFrame):
         sale_time = datetime.now().time()
         billsale_time_str = sale_time.strftime('%H:%M')
         itemscart = self.cart
+        self.allitem_quantity = 0
         
         def fmt(val):
             try:
@@ -302,7 +305,7 @@ class POSTerminal(ctk.CTkFrame):
             p_val = fmt(itemscart[x])
             q_val = fmt(itemscart[x+1])
             sum_val = fmt(itemscart[x+2])
-            self.allitem_quantity += self.cart[x+1] 
+            self.allitem_quantity += q_val
 
             items += """
 ราคา    {item_info:<5} ฿    {item_quan:<3} ชิ้น  =>  {itemsumprice:>1} ฿
