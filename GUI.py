@@ -12,12 +12,7 @@ import customtkinter as ctk
 from CTkListbox import *
 import pygame
 
-# --- FIX FOR WINDOWS SCALING ---
-try:
-    from ctypes import windll
-    windll.shcore.SetProcessDpiAwareness(1)
-except Exception:
-    pass
+
 
 # Windows specific imports
 try:
@@ -51,6 +46,40 @@ cursor.execute('''
         employee TEXT
     )
 ''')
+
+class NotificationPopup(ctk.CTkToplevel):
+    def __init__(self, master, message, **kwargs):
+        super().__init__(master, **kwargs)
+        
+        # 1. Configuration
+        self.overrideredirect(True) # Remove window borders
+        self.attributes("-topmost", True) # Keep on top
+        
+        # 2. Size and Position (Top Right of the App)
+        width = 300
+        height = 60
+        
+        # Calculate position relative to the main window
+        # We add offset so it doesn't cover the close button of the main app
+        pos_x = master.winfo_x() + master.winfo_width() - width - 30
+        pos_y = master.winfo_y() + 80 # Below the Top Bar
+        
+        self.geometry(f"{width}x{height}+{pos_x}+{pos_y}")
+        
+        # 3. Design
+        self.frame = ctk.CTkFrame(self, fg_color="#333333", border_width=2, border_color="#00C853")
+        self.frame.pack(fill="both", expand=True)
+        
+        # Icon/Label
+        self.lbl = ctk.CTkLabel(self.frame, text=f"🔔 {message}", font=("Arial", 14), text_color="white")
+        self.lbl.pack(expand=True, padx=10, pady=10)
+        
+        # 4. Auto-Close after 3 seconds
+        self.after(3000, self.destroy)
+        
+        # Close on click
+        self.lbl.bind("<Button-1>", lambda e: self.destroy())
+
 
 # ==============================================================================
 # CLASS: POS TERMINAL (Represents ONE Station)
@@ -89,9 +118,10 @@ class POSTerminal(ctk.CTkFrame):
                 except: pass
             except: pass
 
-        # --- CALCULATOR (Left) ---
-        self.calc_area = ctk.CTkFrame(self.content_frame)
-        self.calc_area.pack(side="left", fill="both", expand=True, padx=(5, 15))
+       # --- CALCULATOR (Left) ---
+        self.calc_area = ctk.CTkFrame(self.content_frame, width=800, height=700)
+        self.calc_area.pack_propagate(False) 
+        self.calc_area.pack(side="left", padx=150) # Removed expand=True
         
         self.price_entry = ctk.CTkEntry(self.calc_area, height=60, font=("Arial", 40), justify="right")
         self.price_entry.insert(0, "0")
@@ -101,7 +131,7 @@ class POSTerminal(ctk.CTkFrame):
         self.keypad_frame = ctk.CTkFrame(self.calc_area, fg_color="transparent")
         self.keypad_frame.pack(fill="both", expand=True, padx=5, pady=5)
         
-        btn_bg, btn_fg, btn_active = "#3a3a3a", "white", "#505050"
+        btn_bg, btn_fg, btn_active = "#002C5E", "white", "#505050"
         
         keys = [
             ('7', 0, 0), ('8', 0, 1), ('9', 0, 2), ('C', 0, 3),
@@ -115,13 +145,13 @@ class POSTerminal(ctk.CTkFrame):
             bg_color = btn_bg
             if key == 'C': bg_color = "#C62828"
             elif key == '<--': bg_color = "#EF6C00"
-            elif key == 'x': bg_color = "#1565C0"
+            elif key == 'x': bg_color = "#1A61B3"
             elif key == 'ADD': bg_color = "green"
             
             colspan = 2 if key == '0' else 1
             
             btn = tk.Button(self.keypad_frame, text=key, command=cmd,
-                            font=("Arial", 24, "bold"), bg=bg_color, fg=btn_fg,
+                            font=("Arial", 30, "bold"), bg=bg_color, fg=btn_fg,
                             activebackground=btn_active, activeforeground=btn_fg,
                             relief="flat", borderwidth=0)
             btn.grid(row=r, column=c, columnspan=colspan, padx=3, pady=3, sticky="nsew")
@@ -130,25 +160,22 @@ class POSTerminal(ctk.CTkFrame):
         for i in range(4): self.keypad_frame.rowconfigure(i, weight=1)
 
         # --- CART (Right) ---
-        # CHANGE 1: Increased Width from 300 -> 500
-        self.cart_area = ctk.CTkFrame(self.content_frame, width=1200) 
-        self.cart_area.pack(side="right", fill="y", padx=5)
+        self.cart_area = ctk.CTkFrame(self.content_frame, width=1300) 
+        self.cart_area.pack(side="left", padx=50)
         
-        # CHANGE 2: Increased Font from 24 -> 50
-        # Note: 'Angsana New' is a small font, so 50 looks like normal size 30 in other fonts.
-        self.cart_listbox = CTkListbox(self.cart_area, height=250, font=("Angsana New", 40))
+        self.cart_listbox = CTkListbox(self.cart_area, height=550, font=("Angsana New", 45))
         self.cart_listbox.pack(fill="both", expand=True, padx=5, pady=5)
         
         self.btn_row = ctk.CTkFrame(self.cart_area)
         self.btn_row.pack(fill="x", pady=5)
         
         self.btn_remove = ctk.CTkButton(self.btn_row, text="Remove", command=self.removefromcart, fg_color="#555", width=200, height=90, font=("Arial", 18))
-        self.btn_remove.pack(side="left", padx=5, expand=True)
+        self.btn_remove.pack(side="right", padx=5, expand=True)
         
         self.btn_clear = ctk.CTkButton(self.btn_row, text="Clear", command=self.clearcart, fg_color="#555", width=200, height=90, font=("Arial", 18))
-        self.btn_clear.pack(side="right", padx=5, expand=True)
+        self.btn_clear.pack(side="left", padx=5, expand=True)
         
-        self.lbl_total = ctk.CTkLabel(self.cart_area, text="Total:Pcs / ฿", font=("Arial", 40, "bold"), text_color="#4CAF50")
+        self.lbl_total = ctk.CTkLabel(self.cart_area, text="รวม: ชิ้น / ฿", font=("Arial", 40, "bold"), text_color="#4CAF50")
         self.lbl_total.pack(pady=5)
         
         self.btn_checkout = ctk.CTkButton(self.cart_area, text="CHECKOUT", command=self.Checkout, 
@@ -158,12 +185,19 @@ class POSTerminal(ctk.CTkFrame):
     # --- LOGIC ---
     def keypad_action(self, key):
         self.play_sound()
-        if key == 'C': self.price_entry.delete(0, 'end'); self.price_entry.insert(0, "0")
+        if key == 'C': 
+            self.price_entry.delete(0, 'end')
+            self.price_entry.insert(0, "0")
         elif key == '<--': 
             curr = self.price_entry.get()
             if len(curr) > 0: self.price_entry.delete(len(curr)-1, 'end')
-        elif key == 'x': self.price_entry.insert('end', '*')
-        elif key == 'ADD': self.add_to_cart()
+        elif key == 'x': 
+            # CHANGE: Check if value is "0" OR if "*" already exists
+            curr = self.price_entry.get()
+            if curr != "0" and '*' not in curr:
+                self.price_entry.insert('end', '*')
+        elif key == 'ADD': 
+            self.add_to_cart()
         else:
             if self.price_entry.get() == "0": self.price_entry.delete(0, 'end')
             self.price_entry.insert('end', key)
@@ -208,22 +242,31 @@ class POSTerminal(ctk.CTkFrame):
             p, q, t = self.cart[i], self.cart[i+1], self.cart[i+2]
             self.Sumprice += t
             self.allitem_quantity += q
-            self.cart_listbox.insert(idx, f"{idx+1}) {fmt(p)}฿ x {fmt(q)} = {fmt(t)}฿")
+            self.cart_listbox.insert(idx, f"{idx+1})    {fmt(p)} ฿  x  {fmt(q)}  =  {fmt(t)} ฿")
             idx += 1
-        self.lbl_total.configure(text=f"{self.allitem_quantity} Pcs \ {fmt(self.Sumprice)}฿")
+        self.lbl_total.configure(text=f"{self.allitem_quantity} ชิ้น \ {fmt(self.Sumprice)} ฿")
 
     def Checkout(self):
         if not self.cart: return
         self.play_sound()
+        
+        try:
+            printer_name = app.printer_combo.get()
+        except:
+            try: printer_name = win32print.GetDefaultPrinter()
+            except: printer_name = None
+
         receipt_text = self.generate_receipt_text()
-        threading.Thread(target=self.run_checkout_thread, args=(receipt_text, self.Sumprice, self.employee)).start()
+        
+        # Pass the printer_name to the thread
+        threading.Thread(target=self.run_checkout_thread, args=(receipt_text, self.Sumprice, self.employee, printer_name)).start()
         self.clearcart()
 
-    def run_checkout_thread(self, text, price, emp):
-        self.print_receipt(text)
+    def run_checkout_thread(self, text, price, emp, printer_name):
+        self.print_receipt(text, printer_name)
         self.save_to_db(price, emp)
 
-    def print_receipt(self, text_to_print):
+    def print_receipt(self, text_to_print, printer_name):
         try:
             fd, filename = tempfile.mkstemp(".txt")
             os.close(fd)
@@ -234,19 +277,23 @@ class POSTerminal(ctk.CTkFrame):
             try:
                 # Print 2 copies (Customer + Keep)
                 for _ in range(2):
-                    win32api.ShellExecute(
-                        0,
-                        "print",
-                        filename,
-                        '/d:"%s"' % win32print.GetDefaultPrinter(),
-                        ".",
-                        0
-                    )
+                    if printer_name:
+                        win32api.ShellExecute(
+                            0,
+                            "print",
+                            filename,
+                            '/d:"%s"' % printer_name,
+                            ".",
+                            0
+                        )
+                    else:
+                        # Fallback if no printer name found
+                        win32api.ShellExecute(0, "print", filename, None, ".", 0)
             except Exception as e:
-                print(f"Printing Error: {e}")
+                app.show_notification(f"Printing Error: {e}")
                 
         except Exception as e:
-            print(f"File handling error during print: {e}")
+            app.show_notification(f"File handling error during print: {e}")
 
     def save_to_db(self, price, emp):
         try:
@@ -356,7 +403,7 @@ class MainApp:
         self.is_dual_mode = False 
         
         # --- 1. TOP BAR ---
-        self.top_bar = ctk.CTkFrame(self.root, height=60, fg_color="#222")
+        self.top_bar = ctk.CTkFrame(self.root, height=70, fg_color="#222")
         self.top_bar.pack(side="top", fill="x")
         
         self.btn_toggle = ctk.CTkButton(self.top_bar, text="Switch to DUAL Mode", 
@@ -365,6 +412,43 @@ class MainApp:
         
         self.btn_history = ctk.CTkButton(self.top_bar, text="History", command=self.open_history)
         self.btn_history.pack(side="left", padx=10, pady=5)
+
+        # --- PRINTER SELECTION (Add this to Top Bar) ---
+        # 1. Scan for Printers
+        printer_list = ["No Printers Found"]
+        try:
+            # PRINTER_ENUM_LOCAL | PRINTER_ENUM_CONNECTIONS
+            flags = win32print.PRINTER_ENUM_LOCAL | win32print.PRINTER_ENUM_CONNECTIONS
+            printers = win32print.EnumPrinters(flags)
+            if printers:
+                printer_list = [p[2] for p in printers]
+        except Exception as e:
+            app.show_notification(f"Printer Scan Error: {e}")
+
+        # 2. Create ComboBox
+        self.printer_combo = ctk.CTkComboBox(self.top_bar, values=printer_list, width=250, font=("Arial", 14))
+        self.printer_combo.pack(side="left", padx=10, pady=5)
+
+        # 3. Set Default Printer
+        try:
+            default_printer = win32print.GetDefaultPrinter()
+            if default_printer in printer_list:
+                self.printer_combo.set(default_printer)
+            elif printer_list:
+                self.printer_combo.set(printer_list[0])
+        except:
+            pass
+
+        self.notification_var = ctk.StringVar(value="off")
+        self.chk_notification = ctk.CTkCheckBox(
+            self.top_bar, 
+            text="Notification", 
+            variable=self.notification_var, 
+            onvalue="on", 
+            offvalue="off",
+            font=("Arial", 14)
+        )
+        self.chk_notification.pack(side="left", padx=10, pady=5)
 
         self.btn_exit = ctk.CTkButton(self.top_bar, text="Exit App", command=self.root.destroy, fg_color="red")
         self.btn_exit.pack(side="right", padx=10, pady=5)
@@ -387,6 +471,12 @@ class MainApp:
         else:
             self.btn_toggle.configure(text="Switch to DUAL Mode")
         self.update_layout()
+
+    def show_notification(self, message):
+        if self.notification_var.get() == "on":
+            NotificationPopup(self.root, message)
+        else:
+            app.show_notification(f"[Log]: {message}")
 
     def update_layout(self):
         if self.is_dual_mode:
@@ -417,7 +507,7 @@ class MainApp:
         if os.path.exists(target):
             subprocess.run(['python', target])
         else:
-            print("History file not found.")
+            app.show_notification("History file not found.")
 
 if __name__ == "__main__":
     app = MainApp()
