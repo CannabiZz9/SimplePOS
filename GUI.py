@@ -169,17 +169,17 @@ class POSTerminal(ctk.CTkFrame):
         self.btn_row = ctk.CTkFrame(self.cart_area)
         self.btn_row.pack(fill="x", pady=5)
         
-        self.btn_remove = ctk.CTkButton(self.btn_row, text="Remove", command=self.removefromcart, fg_color="#555", width=200, height=90, font=("Arial", 18))
+        self.btn_remove = ctk.CTkButton(self.btn_row, text="Remove", command=self.removefromcart , state="disabled", fg_color="#555", width=200, height=90, font=("Arial", 18))
         self.btn_remove.pack(side="right", padx=5, expand=True)
         
-        self.btn_clear = ctk.CTkButton(self.btn_row, text="Clear", command=self.clearcart, fg_color="#555", width=200, height=90, font=("Arial", 18))
+        self.btn_clear = ctk.CTkButton(self.btn_row, text="Clear", command=self.clearcart , state="disabled", fg_color="#555", width=200, height=90, font=("Arial", 18))
         self.btn_clear.pack(side="left", padx=5, expand=True)
         
-        self.lbl_total = ctk.CTkLabel(self.cart_area, text="รวม: ชิ้น / ฿", font=("Arial", 40, "bold"), text_color="#4CAF50")
+        self.lbl_total = ctk.CTkLabel(self.cart_area, text="0 ชิ้น \ 0 ฿", font=("Arial", 40, "bold"), text_color="#4CAF50")
         self.lbl_total.pack(pady=5)
         
         self.btn_checkout = ctk.CTkButton(self.cart_area, text="CHECKOUT", command=self.Checkout, 
-                                          font=("Arial", 30, "bold"), height=90, fg_color="#00C853")
+                                          font=("Arial", 30, "bold"), height=90, fg_color="#00C853", state="disabled")
         self.btn_checkout.pack(fill="x", padx=10, pady=(0, 10))
 
     # --- LOGIC ---
@@ -245,6 +245,16 @@ class POSTerminal(ctk.CTkFrame):
             self.cart_listbox.insert(idx, f"{idx+1})    {fmt(p)} ฿  x  {fmt(q)}  =  {fmt(t)} ฿")
             idx += 1
         self.lbl_total.configure(text=f"{self.allitem_quantity} ชิ้น \ {fmt(self.Sumprice)} ฿")
+
+        if len(self.cart) > 0:
+            self.btn_checkout.configure(state="normal")
+            self.btn_clear.configure(state="normal")
+            self.btn_remove.configure(state="normal")
+        else:
+            self.btn_checkout.configure(state="disabled")
+            self.btn_clear.configure(state="disabled")
+            self.btn_remove.configure(state="disabled")
+
 
     def Checkout(self):
         if not self.cart: return
