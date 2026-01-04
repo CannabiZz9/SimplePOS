@@ -175,7 +175,7 @@ class POSTerminal(ctk.CTkFrame):
         self.btn_clear = ctk.CTkButton(self.btn_row, text="Clear", command=self.clearcart , state="disabled", fg_color="#555", width=200, height=90, font=("Arial", 18))
         self.btn_clear.pack(side="left", padx=5, expand=True)
         
-        self.lbl_total = ctk.CTkLabel(self.cart_area, text="0 ชิ้น \ 0 ฿", font=("Arial", 40, "bold"), text_color="#4CAF50")
+        self.lbl_total = ctk.CTkLabel(self.cart_area, text=f"0 ชิ้น | 0 ฿", font=("Arial", 40, "bold"), text_color="#4CAF50")
         self.lbl_total.pack(pady=5)
         
         self.btn_checkout = ctk.CTkButton(self.cart_area, text="CHECKOUT", command=self.Checkout, 
@@ -244,7 +244,7 @@ class POSTerminal(ctk.CTkFrame):
             self.allitem_quantity += q
             self.cart_listbox.insert(idx, f"{idx+1})    {fmt(p)} ฿  x  {fmt(q)}  =  {fmt(t)} ฿")
             idx += 1
-        self.lbl_total.configure(text=f"{self.allitem_quantity} ชิ้น \ {fmt(self.Sumprice)} ฿")
+        self.lbl_total.configure(text=f"{self.allitem_quantity} ชิ้น | {fmt(self.Sumprice)} ฿")
 
         if len(self.cart) > 0:
             self.btn_checkout.configure(state="normal")
